@@ -68,8 +68,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
-        // Handle shared content
-        handleSharedContent(intent)
+        // Handle shared content only if it's a share intent
+        if (intent?.action == Intent.ACTION_SEND) {
+            handleSharedContent(intent)
+        }
         
         setContent {
             SecondBrainTheme {
@@ -80,7 +82,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        handleSharedContent(intent)
+        // Handle shared content when app is already running
+        if (intent?.action == Intent.ACTION_SEND) {
+            handleSharedContent(intent)
+        }
     }
 
     private fun handleSharedContent(intent: Intent?) {
@@ -183,11 +188,23 @@ class MainActivity : ComponentActivity() {
         var searchQuery by remember { mutableStateOf("") }
         var isSearching by remember { mutableStateOf(false) }
 
-        // Update counts when app becomes active
-        LaunchedEffect(Unit) {
+        // Function to refresh data
+        fun refreshData() {
             textCount = prefs.getInt(TEXT_COUNT_KEY, 0)
             imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
             linkCount = prefs.getInt(LINK_COUNT_KEY, 0)
+        }
+
+        // Update counts when app becomes active
+        LaunchedEffect(Unit) {
+            refreshData()
+        }
+
+        // Refresh data when returning to main screen
+        LaunchedEffect(currentScreen) {
+            if (currentScreen == "main") {
+                refreshData()
+            }
         }
 
         Scaffold(
