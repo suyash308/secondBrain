@@ -28,6 +28,13 @@ import coil.request.ImageRequest
 import com.example.secondbrain.ui.theme.SecondBrainTheme
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.lifecycle.lifecycleScope
 
 class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "SecondBrainPrefs"
@@ -37,7 +44,25 @@ class MainActivity : ComponentActivity() {
     private val TEXT_ITEMS_KEY = "text_items"
     private val IMAGE_ITEMS_KEY = "image_items"
     private val LINK_ITEMS_KEY = "link_items"
+    private val IMAGE_METADATA_KEY = "image_metadata"
     private val gson = Gson()
+    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+    data class ImageItem(
+        val uri: String,
+        val extractedText: String = "",
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    data class TextItem(
+        val content: String,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    data class LinkItem(
+        val url: String,
+        val timestamp: Long = System.currentTimeMillis()
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,16 +90,19 @@ class MainActivity : ComponentActivity() {
                     val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
                     if (!sharedText.isNullOrEmpty()) {
                         if (isUrl(sharedText)) {
-                            addToCategory(LINK_COUNT_KEY, LINK_ITEMS_KEY, sharedText)
+                            addToCategory(LINK_COUNT_KEY, LINK_ITEMS_KEY, LinkItem(sharedText))
                         } else {
-                            addToCategory(TEXT_COUNT_KEY, TEXT_ITEMS_KEY, sharedText)
+                            addToCategory(TEXT_COUNT_KEY, TEXT_ITEMS_KEY, TextItem(sharedText))
                         }
                     }
                 }
                 "image/*", "image/jpeg", "image/png", "image/gif", "image/webp" -> {
                     val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                     if (imageUri != null) {
-                        addToCategory(IMAGE_COUNT_KEY, IMAGE_ITEMS_KEY, imageUri.toString())
+                        val imageItem = ImageItem(imageUri.toString())
+                        addToCategory(IMAGE_COUNT_KEY, IMAGE_ITEMS_KEY, imageItem)
+                        // Start OCR processing
+                        processImageWithOCR(imageUri)
                     }
                 }
             }
@@ -86,7 +114,7 @@ class MainActivity : ComponentActivity() {
                text.startsWith("www.") || text.contains("://")
     }
 
-    private fun addToCategory(countKey: String, itemsKey: String, content: String) {
+    private fun addToCategory(countKey: String, itemsKey: String, item: Any) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         
         // Increment count
@@ -95,10 +123,54 @@ class MainActivity : ComponentActivity() {
         
         // Add to items list
         val itemsJson = prefs.getString(itemsKey, "[]")
-        val type = object : TypeToken<List<String>>() {}.type
-        val items: MutableList<String> = gson.fromJson(itemsJson, type) ?: mutableListOf()
-        items.add(content)
+        val type = when (item) {
+            is TextItem -> object : TypeToken<List<TextItem>>() {}.type
+            is ImageItem -> object : TypeToken<List<ImageItem>>() {}.type
+            is LinkItem -> object : TypeToken<List<LinkItem>>() {}.type
+            else -> object : TypeToken<List<String>>() {}.type
+        }
+        val items: MutableList<Any> = gson.fromJson(itemsJson, type) ?: mutableListOf()
+        items.add(item)
         prefs.edit().putString(itemsKey, gson.toJson(items)).apply()
+    }
+
+    private fun processImageWithOCR(imageUri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val image = InputImage.fromFilePath(this@MainActivity, imageUri)
+                textRecognizer.process(image)
+                    .addOnSuccessListener { result ->
+                        val extractedText = result.text
+                        if (extractedText.isNotEmpty()) {
+                            // Update the image item with extracted text
+                            updateImageWithExtractedText(imageUri.toString(), extractedText)
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        // Handle OCR errors silently
+                    }
+            } catch (e: Exception) {
+                // Handle image loading errors silently
+            }
+        }
+    }
+
+    private fun updateImageWithExtractedText(imageUri: String, extractedText: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val itemsJson = prefs.getString(IMAGE_ITEMS_KEY, "[]")
+        val type = object : TypeToken<List<ImageItem>>() {}.type
+        val items: MutableList<ImageItem> = gson.fromJson(itemsJson, type) ?: mutableListOf()
+        
+        // Find and update the image item
+        val updatedItems = items.map { item ->
+            if (item.uri == imageUri) {
+                item.copy(extractedText = extractedText)
+            } else {
+                item
+            }
+        }
+        
+        prefs.edit().putString(IMAGE_ITEMS_KEY, gson.toJson(updatedItems)).apply()
     }
 
     @Composable
@@ -326,9 +398,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun getItems(prefs: android.content.SharedPreferences, key: String): List<String> {
+    private fun getItems(prefs: android.content.SharedPreferences, key: String): List<Any> {
         val itemsJson = prefs.getString(key, "[]")
-        val type = object : TypeToken<List<String>>() {}.type
+        val type = when (key) {
+            TEXT_ITEMS_KEY -> object : TypeToken<List<TextItem>>() {}.type
+            IMAGE_ITEMS_KEY -> object : TypeToken<List<ImageItem>>() {}.type
+            LINK_ITEMS_KEY -> object : TypeToken<List<LinkItem>>() {}.type
+            else -> object : TypeToken<List<String>>() {}.type
+        }
         return gson.fromJson(itemsJson, type) ?: listOf()
     }
 
@@ -385,7 +462,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun ContentList(
-        items: List<String>,
+        items: List<Any>,
         category: String,
         modifier: Modifier = Modifier
     ) {
@@ -432,35 +509,65 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .padding(16.dp)
                         ) {
-                            if (category == "Image") {
-                                // Display image
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(item)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = "Shared image",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(200.dp),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                // Show URI as caption
-                                Text(
-                                    text = "Image URI: $item",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            } else {
-                                // Display text/link content
-                                Text(
-                                    text = item,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                            when (item) {
+                                is ImageItem -> {
+                                    // Display image
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(item.uri)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "Shared image",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(200.dp),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    // Show URI as caption
+                                    Text(
+                                        text = "Image URI: ${item.uri}",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    if (item.extractedText.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "OCR Text: ${item.extractedText}",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                is TextItem -> {
+                                    // Display text content
+                                    Text(
+                                        text = item.content,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                is LinkItem -> {
+                                    // Display link content
+                                    Text(
+                                        text = item.url,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                else -> {
+                                    // Fallback for old string format
+                                    Text(
+                                        text = item.toString(),
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                         }
                     }
@@ -472,23 +579,36 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun SearchResults(
         query: String,
-        textItems: List<String>,
+        textItems: List<Any>,
         modifier: Modifier = Modifier
     ) {
-        val filteredItems = textItems.filter { 
-            it.contains(query, ignoreCase = true) 
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val imageItems = getItems(prefs, IMAGE_ITEMS_KEY) as List<ImageItem>
+        
+        val filteredTextItems = textItems.filter { item ->
+            if (item is TextItem) {
+                item.content.contains(query, ignoreCase = true)
+            } else {
+                false
+            }
         }
+        
+        val filteredImageItems = imageItems.filter { item ->
+            item.extractedText.contains(query, ignoreCase = true)
+        }
+        
+        val totalResults = filteredTextItems.size + filteredImageItems.size
 
         Column(modifier = modifier) {
             Text(
-                text = "Search Results (${filteredItems.size} found)",
+                text = "Search Results (${totalResults} found)",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            if (filteredItems.isEmpty()) {
+            if (totalResults == 0) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -502,7 +622,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "No text items found",
+                        text = "No items found",
                         fontSize = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
@@ -518,12 +638,46 @@ class MainActivity : ComponentActivity() {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(filteredItems.reversed()) { item ->
+                    // Text items
+                    items(filteredTextItems.reversed()) { item ->
+                        if (item is TextItem) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
+                                ) {
+                                    Text(
+                                        text = "📝 Text Item",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = item.content,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Image items with OCR text
+                    items(filteredImageItems.reversed()) { item ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
                             )
                         ) {
                             Column(
@@ -532,7 +686,33 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp)
                             ) {
                                 Text(
-                                    text = item,
+                                    text = "🖼️ Image with OCR Text",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(item.uri)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Shared image",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(120.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Extracted Text:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.extractedText,
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.fillMaxWidth()
