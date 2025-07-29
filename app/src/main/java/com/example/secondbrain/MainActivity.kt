@@ -35,6 +35,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 
 class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "SecondBrainPrefs"
@@ -49,7 +52,8 @@ class MainActivity : ComponentActivity() {
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     data class ImageItem(
-        val uri: String,
+        val originalUri: String,
+        val localPath: String = "",
         val extractedText: String = "",
         val timestamp: Long = System.currentTimeMillis()
     )
@@ -63,6 +67,33 @@ class MainActivity : ComponentActivity() {
         val url: String,
         val timestamp: Long = System.currentTimeMillis()
     )
+
+    private fun copyImageToInternalStorage(uri: Uri): String? {
+        return try {
+            val inputStream: InputStream? = contentResolver.openInputStream(uri)
+            val fileName = "image_${System.currentTimeMillis()}.jpg"
+            val file = File(filesDir, fileName)
+            
+            inputStream?.use { input ->
+                FileOutputStream(file).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            // Verify file was created and has content
+            if (file.exists() && file.length() > 0) {
+                val fileUri = "file://${file.absolutePath}"
+                println("DEBUG: Image copied successfully to $fileUri (${file.length()} bytes)")
+                fileUri
+            } else {
+                println("DEBUG: Failed to copy image - file doesn't exist or is empty")
+                null
+            }
+        } catch (e: Exception) {
+            println("DEBUG: Error copying image: ${e.message}")
+            null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,10 +135,25 @@ class MainActivity : ComponentActivity() {
                 "image/*", "image/jpeg", "image/png", "image/gif", "image/webp" -> {
                     val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                     if (imageUri != null) {
-                        val imageItem = ImageItem(imageUri.toString())
+                        // Copy image to internal storage
+                        val localPath = copyImageToInternalStorage(imageUri)
+                        val imageItem = ImageItem(
+                            originalUri = imageUri.toString(),
+                            localPath = localPath ?: ""
+                        )
                         addToCategory(IMAGE_COUNT_KEY, IMAGE_ITEMS_KEY, imageItem)
-                        // Start OCR processing
-                        processImageWithOCR(imageUri)
+                        
+                        // Start OCR processing with local path if available
+                        if (localPath != null) {
+                            // Extract the actual file path from the file:// URI
+                            val filePath = localPath.removePrefix("file://")
+                            val file = File(filePath)
+                            println("DEBUG: Starting OCR with local file: ${file.absolutePath}")
+                            processImageWithOCR(file)
+                        } else {
+                            println("DEBUG: Starting OCR with original URI: $imageUri")
+                            processImageWithOCR(imageUri)
+                        }
                     }
                 }
             }
@@ -139,23 +185,64 @@ class MainActivity : ComponentActivity() {
         prefs.edit().putString(itemsKey, gson.toJson(items)).apply()
     }
 
-    private fun processImageWithOCR(imageUri: Uri) {
+    private fun processImageWithOCR(imageInput: Any) {
+        println("DEBUG: processImageWithOCR called with: ${imageInput::class.simpleName} = $imageInput")
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val image = InputImage.fromFilePath(this@MainActivity, imageUri)
+                val image = when (imageInput) {
+                    is File -> {
+                        println("DEBUG: Processing file: ${imageInput.absolutePath}")
+                        println("DEBUG: File exists: ${imageInput.exists()}")
+                        println("DEBUG: File size: ${imageInput.length()} bytes")
+                        InputImage.fromFilePath(this@MainActivity, Uri.fromFile(imageInput))
+                    }
+                    is Uri -> {
+                        println("DEBUG: Processing URI: $imageInput")
+                        InputImage.fromFilePath(this@MainActivity, imageInput)
+                    }
+                    else -> {
+                        println("DEBUG: Unknown image input type: ${imageInput::class.simpleName}")
+                        return@launch
+                    }
+                }
+                
+                println("DEBUG: InputImage created successfully")
+                println("DEBUG: Starting OCR processing...")
+                
                 textRecognizer.process(image)
                     .addOnSuccessListener { result ->
                         val extractedText = result.text
+                        println("DEBUG: OCR completed successfully!")
+                        println("DEBUG: Extracted text length: ${extractedText.length}")
+                        println("DEBUG: Extracted text: '$extractedText'")
+                        
                         if (extractedText.isNotEmpty()) {
                             // Update the image item with extracted text
-                            updateImageWithExtractedText(imageUri.toString(), extractedText)
+                            val imageUri = when (imageInput) {
+                                is File -> imageInput.absolutePath
+                                is Uri -> imageInput.toString()
+                                else -> return@addOnSuccessListener
+                            }
+                            println("DEBUG: Updating image with URI: $imageUri")
+                            updateImageWithExtractedText(imageUri, extractedText)
+                            
+                            // Trigger UI update
+                            lifecycleScope.launch(Dispatchers.Main) {
+                                println("DEBUG: Triggering UI update on main thread")
+                                // This will trigger a recomposition
+                            }
+                        } else {
+                            println("DEBUG: No text extracted from image - text is empty")
                         }
                     }
                     .addOnFailureListener { e ->
-                        // Handle OCR errors silently
+                        println("DEBUG: OCR failed with error: ${e.message}")
+                        println("DEBUG: Error type: ${e::class.simpleName}")
+                        e.printStackTrace()
                     }
             } catch (e: Exception) {
-                // Handle image loading errors silently
+                println("DEBUG: Error in OCR processing: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
@@ -168,7 +255,8 @@ class MainActivity : ComponentActivity() {
         
         // Find and update the image item
         val updatedItems = items.map { item ->
-            if (item.uri == imageUri) {
+            if (item.originalUri == imageUri || item.localPath == imageUri) {
+                println("DEBUG: Updating image item with OCR text: '$extractedText'")
                 item.copy(extractedText = extractedText)
             } else {
                 item
@@ -176,6 +264,7 @@ class MainActivity : ComponentActivity() {
         }
         
         prefs.edit().putString(IMAGE_ITEMS_KEY, gson.toJson(updatedItems)).apply()
+        println("DEBUG: Image metadata updated successfully")
     }
 
     @Composable
@@ -187,12 +276,14 @@ class MainActivity : ComponentActivity() {
         var currentScreen by remember { mutableStateOf("main") }
         var searchQuery by remember { mutableStateOf("") }
         var isSearching by remember { mutableStateOf(false) }
+        var refreshTrigger by remember { mutableStateOf(0) }
 
         // Function to refresh data
         fun refreshData() {
             textCount = prefs.getInt(TEXT_COUNT_KEY, 0)
             imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
             linkCount = prefs.getInt(LINK_COUNT_KEY, 0)
+            refreshTrigger++ // Trigger recomposition
         }
 
         // Update counts when app becomes active
@@ -205,6 +296,11 @@ class MainActivity : ComponentActivity() {
             if (currentScreen == "main") {
                 refreshData()
             }
+        }
+
+        // Refresh data when refreshTrigger changes
+        LaunchedEffect(refreshTrigger) {
+            refreshData()
         }
 
         Scaffold(
@@ -528,49 +624,107 @@ class MainActivity : ComponentActivity() {
                         ) {
                             when (item) {
                                 is ImageItem -> {
-                                    // Display image
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(item.uri)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = "Shared image",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(200.dp),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    // Show URI as caption
-                                    Text(
-                                        text = "Image URI: ${item.uri}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    if (item.extractedText.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "OCR Text: ${item.extractedText}",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                            modifier = Modifier.fillMaxWidth()
+                                    // Display image with fallback
+                                    val imageData = when {
+                                        !item.localPath.isNullOrEmpty() -> item.localPath
+                                        !item.originalUri.isNullOrEmpty() -> item.originalUri
+                                        else -> ""
+                                    }
+                                    
+                                    if (imageData.isNotEmpty()) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(LocalContext.current)
+                                                .data(imageData)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = "Shared image",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp),
+                                            contentScale = ContentScale.Crop
                                         )
+                                    } else {
+                                        // Show placeholder if no image data
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "🖼️ No Image Data",
+                                                fontSize = 24.sp,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    
+                                    // Show OCR text if available
+                                    if (!item.extractedText.isNullOrEmpty()) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "📝 Extracted Text:",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = item.extractedText,
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // Show placeholder if no OCR text
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "🔍 No text extracted from image",
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                                 is TextItem -> {
-                                    // Display text content
+                                    // Display text content with null safety
                                     Text(
-                                        text = item.content,
+                                        text = item.content ?: "No content",
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                                 is LinkItem -> {
-                                    // Display link content
+                                    // Display link content with null safety
                                     Text(
-                                        text = item.url,
+                                        text = item.url ?: "No URL",
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.fillMaxWidth()
@@ -604,14 +758,14 @@ class MainActivity : ComponentActivity() {
         
         val filteredTextItems = textItems.filter { item ->
             if (item is TextItem) {
-                item.content.contains(query, ignoreCase = true)
+                !item.content.isNullOrEmpty() && item.content.contains(query, ignoreCase = true)
             } else {
                 false
             }
         }
         
         val filteredImageItems = imageItems.filter { item ->
-            item.extractedText.contains(query, ignoreCase = true)
+            !item.extractedText.isNullOrEmpty() && item.extractedText.contains(query, ignoreCase = true)
         }
         
         val totalResults = filteredTextItems.size + filteredImageItems.size
@@ -709,17 +863,39 @@ class MainActivity : ComponentActivity() {
                                     color = MaterialTheme.colorScheme.secondary
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(item.uri)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = "Shared image",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(120.dp),
-                                    contentScale = ContentScale.Crop
-                                )
+                                
+                                val imageData = when {
+                                    !item.localPath.isNullOrEmpty() -> item.localPath
+                                    !item.originalUri.isNullOrEmpty() -> item.originalUri
+                                    else -> ""
+                                }
+                                
+                                if (imageData.isNotEmpty()) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(imageData)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "Shared image",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(120.dp),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(120.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "🖼️",
+                                            fontSize = 24.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = "Extracted Text:",
