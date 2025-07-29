@@ -32,6 +32,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
@@ -265,6 +266,9 @@ class MainActivity : ComponentActivity() {
         
         prefs.edit().putString(IMAGE_ITEMS_KEY, gson.toJson(updatedItems)).apply()
         println("DEBUG: Image metadata updated successfully")
+        
+        // Trigger UI refresh by updating a refresh timestamp
+        prefs.edit().putLong("last_ocr_update", System.currentTimeMillis()).apply()
     }
 
     @Composable
@@ -277,6 +281,7 @@ class MainActivity : ComponentActivity() {
         var searchQuery by remember { mutableStateOf("") }
         var isSearching by remember { mutableStateOf(false) }
         var refreshTrigger by remember { mutableStateOf(0) }
+        var ocrUpdateTrigger by remember { mutableStateOf(0L) }
 
         // Function to refresh data
         fun refreshData() {
@@ -303,6 +308,20 @@ class MainActivity : ComponentActivity() {
             refreshData()
         }
 
+        // Listen for OCR updates and refresh UI
+        LaunchedEffect(Unit) {
+            var lastOcrUpdate = prefs.getLong("last_ocr_update", 0)
+            while (true) {
+                delay(1000) // Check every second
+                val currentOcrUpdate = prefs.getLong("last_ocr_update", 0)
+                if (currentOcrUpdate > lastOcrUpdate) {
+                    println("DEBUG: OCR update detected, refreshing UI")
+                    lastOcrUpdate = currentOcrUpdate
+                    refreshData()
+                }
+            }
+        }
+
         Scaffold(
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
@@ -315,14 +334,30 @@ class MainActivity : ComponentActivity() {
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Header
-                        Text(
-                            text = "Second Brain",
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 24.dp)
-                        )
+                        // Header with refresh button
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 24.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Second Brain",
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Button(
+                                onClick = { 
+                                    println("DEBUG: Manual refresh triggered")
+                                    refreshData() 
+                                },
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Text("Refresh")
+                            }
+                        }
 
                         // Search Bar
                         OutlinedTextField(
@@ -519,7 +554,18 @@ class MainActivity : ComponentActivity() {
             LINK_ITEMS_KEY -> object : TypeToken<List<LinkItem>>() {}.type
             else -> object : TypeToken<List<String>>() {}.type
         }
-        return gson.fromJson(itemsJson, type) ?: listOf()
+        val items: List<Any> = gson.fromJson(itemsJson, type) ?: listOf()
+        
+        if (key == IMAGE_ITEMS_KEY) {
+            println("DEBUG: Loading ${items.size} image items from SharedPreferences")
+            items.forEach { item ->
+                if (item is ImageItem) {
+                    println("DEBUG: Image item - URI: ${item.originalUri}, LocalPath: ${item.localPath}, HasText: ${!item.extractedText.isNullOrEmpty()}, TextLength: ${item.extractedText?.length ?: 0}")
+                }
+            }
+        }
+        
+        return items
     }
 
     @Composable
