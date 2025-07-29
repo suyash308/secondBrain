@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -107,6 +108,8 @@ class MainActivity : ComponentActivity() {
         var imageCount by remember { mutableStateOf(prefs.getInt(IMAGE_COUNT_KEY, 0)) }
         var linkCount by remember { mutableStateOf(prefs.getInt(LINK_COUNT_KEY, 0)) }
         var currentScreen by remember { mutableStateOf("main") }
+        var searchQuery by remember { mutableStateOf("") }
+        var isSearching by remember { mutableStateOf(false) }
 
         // Update counts when app becomes active
         LaunchedEffect(Unit) {
@@ -136,74 +139,99 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(bottom = 24.dp)
                         )
 
-                        Text(
-                            text = "Your categorized content",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(bottom = 32.dp)
-                        )
-
-                        // Category Cards
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            CategoryCard(
-                                title = "Text",
-                                count = textCount,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { currentScreen = "text" }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            CategoryCard(
-                                title = "Image",
-                                count = imageCount,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { currentScreen = "image" }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            CategoryCard(
-                                title = "Link",
-                                count = linkCount,
-                                color = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { currentScreen = "link" }
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(32.dp))
-
-                        Text(
-                            text = "Tap on folders to view your shared content!",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        Button(
-                            onClick = {
-                                prefs.edit()
-                                    .putInt(TEXT_COUNT_KEY, 0)
-                                    .putInt(IMAGE_COUNT_KEY, 0)
-                                    .putInt(LINK_COUNT_KEY, 0)
-                                    .putString(TEXT_ITEMS_KEY, "[]")
-                                    .putString(IMAGE_ITEMS_KEY, "[]")
-                                    .putString(LINK_ITEMS_KEY, "[]")
-                                    .apply()
-                                textCount = 0
-                                imageCount = 0
-                                linkCount = 0
+                        // Search Bar
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { 
+                                searchQuery = it
+                                isSearching = it.isNotEmpty()
                             },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            placeholder = { Text("Search in text items...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        if (isSearching) {
+                            // Search Results
+                            SearchResults(
+                                query = searchQuery,
+                                textItems = getItems(prefs, TEXT_ITEMS_KEY),
+                                modifier = Modifier.weight(1f)
                             )
-                        ) {
-                            Text("Reset All")
+                        } else {
+                            Text(
+                                text = "Your categorized content",
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(bottom = 32.dp)
+                            )
+
+                            // Category Cards
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                CategoryCard(
+                                    title = "Text",
+                                    count = textCount,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { currentScreen = "text" }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                CategoryCard(
+                                    title = "Image",
+                                    count = imageCount,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { currentScreen = "image" }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                CategoryCard(
+                                    title = "Link",
+                                    count = linkCount,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { currentScreen = "link" }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(32.dp))
+
+                            Text(
+                                text = "Tap on folders to view your shared content!",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Button(
+                                onClick = {
+                                    prefs.edit()
+                                        .putInt(TEXT_COUNT_KEY, 0)
+                                        .putInt(IMAGE_COUNT_KEY, 0)
+                                        .putInt(LINK_COUNT_KEY, 0)
+                                        .putString(TEXT_ITEMS_KEY, "[]")
+                                        .putString(IMAGE_ITEMS_KEY, "[]")
+                                        .putString(LINK_ITEMS_KEY, "[]")
+                                        .apply()
+                                    textCount = 0
+                                    imageCount = 0
+                                    linkCount = 0
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Text("Reset All")
+                            }
                         }
                     }
                 }
@@ -427,6 +455,82 @@ class MainActivity : ComponentActivity() {
                                 )
                             } else {
                                 // Display text/link content
+                                Text(
+                                    text = item,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun SearchResults(
+        query: String,
+        textItems: List<String>,
+        modifier: Modifier = Modifier
+    ) {
+        val filteredItems = textItems.filter { 
+            it.contains(query, ignoreCase = true) 
+        }
+
+        Column(modifier = modifier) {
+            Text(
+                text = "Search Results (${filteredItems.size} found)",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            if (filteredItems.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "🔍",
+                        fontSize = 48.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    Text(
+                        text = "No text items found",
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Try a different search term",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredItems.reversed()) { item ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
                                 Text(
                                     text = item,
                                     fontSize = 14.sp,
