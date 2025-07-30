@@ -490,7 +490,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 16.dp),
-                            placeholder = { Text("Search in text items...") },
+                            placeholder = { Text("Search in text and images...") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
@@ -769,58 +769,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                     
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    
-                                    // Show OCR text if available
-                                    if (!item.extractedText.isNullOrEmpty()) {
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
-                                            )
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(12.dp)
-                                            ) {
-                                                Text(
-                                                    text = "📝 Extracted Text:",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(
-                                                    text = item.extractedText ?: "No text extracted",
-                                                    fontSize = 14.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        // Show placeholder if no OCR text
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                                            )
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(12.dp)
-                                            ) {
-                                                Text(
-                                                    text = "🔍 No text extracted from image",
-                                                    fontSize = 12.sp,
-                                                    color = MaterialTheme.colorScheme.error,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                        }
-                                    }
+                                    // OCR text is hidden from UI but still searchable
+                                    // The extractedText field remains in the ImageItem model for search functionality
                                 }
                                 is TextItem -> {
                                     // Display text content with null safety
@@ -1153,7 +1103,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     
-                    // Image items with OCR text
+                    // Image items (OCR text hidden but searchable)
                     items(filteredImageItems.reversed()) { item ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -1168,7 +1118,7 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp)
                             ) {
                                 Text(
-                                    text = "🖼️ Image with OCR Text",
+                                    text = "🖼️ Image (contains matching text)",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.secondary
@@ -1207,20 +1157,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Extracted Text:",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = item.extractedText ?: "No text extracted",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                // OCR text is hidden from UI but still searchable
                             }
                         }
                     }
