@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -72,6 +73,8 @@ class MainActivity : ComponentActivity() {
     private val IMAGE_METADATA_KEY = "image_metadata"
     private val gson = Gson()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    
+
 
     data class ImageItem(
         val originalUri: String? = null,
@@ -874,7 +877,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.9f))
-                    .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
+                    .offset { IntOffset(dragOffset.x.toInt(), dragOffset.y.toInt()) }
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { isDragging = true },
@@ -1165,4 +1168,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+
 }
