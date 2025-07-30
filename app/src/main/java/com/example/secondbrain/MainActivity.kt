@@ -30,7 +30,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
@@ -375,7 +377,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun CategoryCounter(
+    private fun CategoryCounter(
         onUploadImage: () -> Unit = {},
         onImageAdded: () -> Unit = {}
     ) {
@@ -523,10 +525,19 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 16.dp),
-                            placeholder = { Text("Search in text and images...") },
+                            placeholder = { Text("Search across text, images, and links…") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                             singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                cursorColor = MaterialTheme.colorScheme.primary,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                            )
                         )
 
                         if (isSearching) {
@@ -574,16 +585,16 @@ class MainActivity : ComponentActivity() {
                             // Category Cards
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 CategoryCard(
                                     title = "Text",
                                     count = textCount,
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f),
-                                    onClick = { currentScreen = "text" }
+                                    onClick = { currentScreen = "text" },
+                                    icon = "📄"
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 CategoryCard(
                                     title = "Image",
                                     count = imageCount,
@@ -597,15 +608,16 @@ class MainActivity : ComponentActivity() {
                                     onClick = { 
                                         println("DEBUG: Image folder clicked, currentScreen set to 'image'")
                                         currentScreen = "image" 
-                                    }
+                                    },
+                                    icon = "🖼️"
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 CategoryCard(
                                     title = "Link",
                                     count = linkCount,
                                     color = MaterialTheme.colorScheme.tertiary,
                                     modifier = Modifier.weight(1f),
-                                    onClick = { currentScreen = "link" }
+                                    onClick = { currentScreen = "link" },
+                                    icon = "🔗"
                                 )
                             }
 
@@ -799,43 +811,55 @@ class MainActivity : ComponentActivity() {
         color: androidx.compose.ui.graphics.Color,
         modifier: Modifier = Modifier,
         onClick: () -> Unit,
-        icon: androidx.compose.ui.graphics.vector.ImageVector? = null
+        icon: String = "📁"
     ) {
+        // Animate count changes
+        val animatedCount by animateIntAsState(
+            targetValue = count,
+            animationSpec = tween(durationMillis = 500, easing = EaseOutBack),
+            label = "countAnimation"
+        )
+        
         Card(
             modifier = modifier
-                .height(120.dp),
-            shape = RoundedCornerShape(12.dp),
+                .height(140.dp)
+                .clickable { onClick() },
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = color.copy(alpha = 0.1f)
+                containerColor = color.copy(alpha = 0.08f)
             ),
-            onClick = onClick
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = 4.dp,
+                pressedElevation = 8.dp
+            )
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(12.dp),
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (icon != null) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = color,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
+                // Icon
                 Text(
-                    text = count.toString(),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = color
+                    text = icon,
+                    fontSize = 32.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                
+                // Animated Count
+                Text(
+                    text = animatedCount.toString(),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = color,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                
+                // Label
                 Text(
                     text = title,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = color.copy(alpha = 0.8f)
                 )
@@ -844,7 +868,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-    fun ContentList(
+    private fun ContentList(
         items: List<Any>,
         category: String,
         modifier: Modifier = Modifier,
@@ -985,8 +1009,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    fun FullScreenImageViewer(
+        @Composable
+    private fun FullScreenImageViewer(
         imageItem: ImageItem,
         onClose: () -> Unit,
         modifier: Modifier = Modifier
@@ -1187,7 +1211,7 @@ class MainActivity : ComponentActivity() {
     }
 
 @Composable
-    fun SearchResults(
+    private fun SearchResults(
         query: String,
         textItems: List<Any>,
         modifier: Modifier = Modifier,
