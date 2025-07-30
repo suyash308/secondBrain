@@ -12,20 +12,30 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.secondbrain.ui.theme.SecondBrainTheme
@@ -344,9 +354,9 @@ class MainActivity : ComponentActivity() {
             if (selectedImageItem != null) {
                 FullScreenImageViewer(
                     imageItem = selectedImageItem!!,
-                    onBack = { selectedImageItem = null },
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    onClose = { selectedImageItem = null },
+                    modifier = Modifier.padding(innerPadding)
+                )
             } else {
                 when (currentScreen) {
                 "main" -> {
@@ -844,121 +854,156 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun FullScreenImageViewer(
         imageItem: ImageItem,
-        onBack: () -> Unit,
+        onClose: () -> Unit,
         modifier: Modifier = Modifier
     ) {
-        Column(
-            modifier = modifier.fillMaxSize()
-        ) {
-            // Header with back button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
+        val imageData = when {
+            !imageItem.localPath.isNullOrEmpty() -> {
+                if (imageItem.localPath.startsWith("file://")) {
+                    imageItem.localPath.removePrefix("file://")
+                } else {
+                    imageItem.localPath
                 }
-                Text(
-                    text = "Image Viewer",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.width(48.dp)) // Balance the header
             }
-
-            // Full-screen image - convert file:// URI to actual file path for AsyncImage
-            val imageData = when {
-                !imageItem.localPath.isNullOrEmpty() -> {
-                    if (imageItem.localPath.startsWith("file://")) {
-                        imageItem.localPath.removePrefix("file://")
-                    } else {
-                        imageItem.localPath
-                    }
-                }
-                !imageItem.originalUri.isNullOrEmpty() -> imageItem.originalUri
-                else -> ""
-            }
-            
-            println("DEBUG: FullScreenImageViewer - imageData: '$imageData'")
-            println("DEBUG: FullScreenImageViewer - localPath: '${imageItem.localPath}'")
-            println("DEBUG: FullScreenImageViewer - originalUri: '${imageItem.originalUri}'")
-            
-            // Use state to hold the bitmap
-            var bitmap by remember { mutableStateOf<Bitmap?>(null) }
-            var isLoading by remember { mutableStateOf(true) }
-            var error by remember { mutableStateOf<String?>(null) }
-
-            // Load bitmap in LaunchedEffect
-            LaunchedEffect(imageData) {
-                if (imageData.startsWith("/")) {
-                    val file = File(imageData)
-                    if (file.exists()) {
-                        try {
-                            println("DEBUG: Loading bitmap from: $imageData")
-                            val loadedBitmap = BitmapFactory.decodeFile(imageData)
-                            if (loadedBitmap != null) {
-                                println("DEBUG: Bitmap loaded successfully - width: ${loadedBitmap.width}, height: ${loadedBitmap.height}")
-                                bitmap = loadedBitmap
-                                isLoading = false
-                            } else {
-                                println("DEBUG: BitmapFactory.decodeFile returned null")
-                                error = "Failed to decode image"
-                                isLoading = false
-                            }
-                        } catch (e: Exception) {
-                            println("DEBUG: Bitmap loading failed: ${e.message}")
-                            error = "Error loading image: ${e.message}"
+            !imageItem.originalUri.isNullOrEmpty() -> imageItem.originalUri
+            else -> ""
+        }
+        
+        // Use state to hold the bitmap
+        var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+        var isLoading by remember { mutableStateOf(true) }
+        var error by remember { mutableStateOf<String?>(null) }
+        
+        // Zoom state
+        var scale by remember { mutableStateOf(1f) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+        
+        // Load bitmap in LaunchedEffect
+        LaunchedEffect(imageData) {
+            if (imageData.startsWith("/")) {
+                val file = File(imageData)
+                if (file.exists()) {
+                    try {
+                        val loadedBitmap = BitmapFactory.decodeFile(imageData)
+                        if (loadedBitmap != null) {
+                            bitmap = loadedBitmap
+                            isLoading = false
+                        } else {
+                            error = "Failed to decode image"
                             isLoading = false
                         }
-                    } else {
-                        println("DEBUG: File does not exist: $imageData")
-                        error = "File not found: $imageData"
+                    } catch (e: Exception) {
+                        error = "Error loading image: ${e.message}"
                         isLoading = false
                     }
                 } else {
-                    println("DEBUG: Invalid file path: $imageData")
-                    error = "Invalid file path: $imageData"
+                    error = "File not found"
                     isLoading = false
                 }
+            } else {
+                error = "Invalid file path"
+                isLoading = false
             }
-
-            if (imageData.isNotEmpty()) {
-                // Add a background color to see if the container is visible
+        }
+        
+        Dialog(
+            onDismissRequest = onClose,
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true,
+                usePlatformDefaultWidth = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.9f))
+            ) {
+                // Close button
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(48.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.5f),
+                            shape = CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Image content
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+                        .fillMaxSize()
                         .padding(16.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     when {
                         isLoading -> {
-                            Text(
-                                text = "Loading image...",
+                            CircularProgressIndicator(
                                 modifier = Modifier.align(Alignment.Center),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = Color.White
                             )
                         }
                         error != null -> {
-                            Text(
-                                text = error ?: "Unknown error",
+                            Column(
                                 modifier = Modifier.align(Alignment.Center),
-                                color = MaterialTheme.colorScheme.error
-                            )
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Error",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = error ?: "Unknown error",
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                         bitmap != null -> {
+                            // Zoomable image
+                            val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
+                                scale *= zoomChange
+                                offset += offsetChange
+                            }
+                            
+                            LaunchedEffect(transformableState) {
+                                snapshotFlow { transformableState.isTransformInProgress }
+                                    .collect { isTransformInProgress ->
+                                        if (!isTransformInProgress) {
+                                            // Reset zoom if it gets too small
+                                            if (scale < 0.5f) {
+                                                scale = 1f
+                                                offset = Offset.Zero
+                                            }
+                                            // Limit maximum zoom
+                                            if (scale > 3f) {
+                                                scale = 3f
+                                            }
+                                        }
+                                    }
+                            }
+                            
                             Image(
                                 bitmap = bitmap!!.asImageBitmap(),
                                 contentDescription = "Full-screen image",
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .transformable(
+                                        state = transformableState,
+                                        lockRotationOnZoomPan = true
+                                    ),
                                 contentScale = ContentScale.Fit
                             )
                         }
@@ -966,88 +1011,9 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 text = "No image data",
                                 modifier = Modifier.align(Alignment.Center),
-                                color = MaterialTheme.colorScheme.error
+                                color = Color.White
                             )
                         }
-                    }
-                    
-                    // Add a debug text overlay to see if the container is working
-                    Text(
-                        text = "Path: ${imageData.take(30)}...",
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp)
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "🖼️ Image not available",
-                        fontSize = 24.sp,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-
-            // Extracted text section
-            if (!imageItem.extractedText.isNullOrEmpty()) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "📝 Extracted Text:",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = imageItem.extractedText ?: "",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            } else {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "🔍 No text extracted from image",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 }
             }
