@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,6 +42,8 @@ import androidx.lifecycle.lifecycleScope
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 
 class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "SecondBrainPrefs"
@@ -296,6 +301,7 @@ class MainActivity : ComponentActivity() {
         var refreshTrigger by remember { mutableStateOf(0) }
         var ocrUpdateTrigger by remember { mutableStateOf(0L) }
         var forceRefresh by remember { mutableStateOf(0) }
+        var selectedImageItem by remember { mutableStateOf<ImageItem?>(null) }
 
         // Function to refresh data
         fun refreshData() {
@@ -335,7 +341,14 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
-            when (currentScreen) {
+            if (selectedImageItem != null) {
+                FullScreenImageViewer(
+                    imageItem = selectedImageItem!!,
+                    onBack = { selectedImageItem = null },
+                        modifier = Modifier.padding(innerPadding)
+                    )
+            } else {
+                when (currentScreen) {
                 "main" -> {
                     Column(
                         modifier = Modifier
@@ -369,22 +382,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Search Bar
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { 
-                                searchQuery = it
-                                isSearching = it.isNotEmpty()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 16.dp),
-                            placeholder = { Text("Search in text items...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
                         if (isSearching) {
                             // Search Results
                             SearchResults(
@@ -413,16 +410,16 @@ class MainActivity : ComponentActivity() {
                                     onClick = { currentScreen = "text" }
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                                            CategoryCard(
-                                title = "Image",
-                                count = imageCount,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { 
-                                    println("DEBUG: Image folder clicked, currentScreen set to 'image'")
-                                    currentScreen = "image" 
-                                }
-                            )
+                                CategoryCard(
+                                    title = "Image",
+                                    count = imageCount,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { 
+                                        println("DEBUG: Image folder clicked, currentScreen set to 'image'")
+                                        currentScreen = "image" 
+                                    }
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 CategoryCard(
                                     title = "Link",
@@ -466,6 +463,22 @@ class MainActivity : ComponentActivity() {
                                 Text("Reset All")
                             }
                         }
+
+                        // Search Bar at the bottom
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { 
+                                searchQuery = it
+                                isSearching = it.isNotEmpty()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp),
+                            placeholder = { Text("Search in text items...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
                     }
                 }
                 "text" -> {
@@ -522,7 +535,10 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
                         ContentList(
                             items = getItems(prefs, IMAGE_ITEMS_KEY),
-                            category = "Image"
+                            category = "Image",
+                            onImageClick = { imageItem ->
+                                selectedImageItem = imageItem
+                            }
                         )
                     }
                 }
@@ -557,6 +573,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
     }
 
     private fun getItems(prefs: android.content.SharedPreferences, key: String): List<Any> {
@@ -628,15 +645,16 @@ class MainActivity : ComponentActivity() {
                     fontWeight = FontWeight.Medium,
                     color = color.copy(alpha = 0.8f)
                 )
-            }
         }
     }
+}
 
-    @Composable
+@Composable
     fun ContentList(
         items: List<Any>,
         category: String,
-        modifier: Modifier = Modifier
+        modifier: Modifier = Modifier,
+        onImageClick: ((ImageItem) -> Unit)? = null
     ) {
         println("DEBUG: ContentList called with ${items.size} items for category: $category")
         items.forEachIndexed { index, item ->
@@ -668,7 +686,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
+    Text(
                     text = "Share some content to see it here!",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
@@ -677,7 +695,7 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             LazyColumn(
-                modifier = modifier
+        modifier = modifier
                     .fillMaxSize()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -685,7 +703,13 @@ class MainActivity : ComponentActivity() {
                 items(items.reversed()) { item ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        onClick = {
+                            if (item is ImageItem && onImageClick != null) {
+                                println("DEBUG: Image card clicked, opening full-screen viewer")
+                                onImageClick(item)
+                            }
+                        }
                     ) {
                         Column(
                             modifier = Modifier
@@ -818,6 +842,219 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    fun FullScreenImageViewer(
+        imageItem: ImageItem,
+        onBack: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        Column(
+            modifier = modifier.fillMaxSize()
+        ) {
+            // Header with back button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Text(
+                    text = "Image Viewer",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.width(48.dp)) // Balance the header
+            }
+
+            // Full-screen image - convert file:// URI to actual file path for AsyncImage
+            val imageData = when {
+                !imageItem.localPath.isNullOrEmpty() -> {
+                    if (imageItem.localPath.startsWith("file://")) {
+                        imageItem.localPath.removePrefix("file://")
+                    } else {
+                        imageItem.localPath
+                    }
+                }
+                !imageItem.originalUri.isNullOrEmpty() -> imageItem.originalUri
+                else -> ""
+            }
+            
+            println("DEBUG: FullScreenImageViewer - imageData: '$imageData'")
+            println("DEBUG: FullScreenImageViewer - localPath: '${imageItem.localPath}'")
+            println("DEBUG: FullScreenImageViewer - originalUri: '${imageItem.originalUri}'")
+            
+            // Use state to hold the bitmap
+            var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+            var isLoading by remember { mutableStateOf(true) }
+            var error by remember { mutableStateOf<String?>(null) }
+
+            // Load bitmap in LaunchedEffect
+            LaunchedEffect(imageData) {
+                if (imageData.startsWith("/")) {
+                    val file = File(imageData)
+                    if (file.exists()) {
+                        try {
+                            println("DEBUG: Loading bitmap from: $imageData")
+                            val loadedBitmap = BitmapFactory.decodeFile(imageData)
+                            if (loadedBitmap != null) {
+                                println("DEBUG: Bitmap loaded successfully - width: ${loadedBitmap.width}, height: ${loadedBitmap.height}")
+                                bitmap = loadedBitmap
+                                isLoading = false
+                            } else {
+                                println("DEBUG: BitmapFactory.decodeFile returned null")
+                                error = "Failed to decode image"
+                                isLoading = false
+                            }
+                        } catch (e: Exception) {
+                            println("DEBUG: Bitmap loading failed: ${e.message}")
+                            error = "Error loading image: ${e.message}"
+                            isLoading = false
+                        }
+                    } else {
+                        println("DEBUG: File does not exist: $imageData")
+                        error = "File not found: $imageData"
+                        isLoading = false
+                    }
+                } else {
+                    println("DEBUG: Invalid file path: $imageData")
+                    error = "Invalid file path: $imageData"
+                    isLoading = false
+                }
+            }
+
+            if (imageData.isNotEmpty()) {
+                // Add a background color to see if the container is visible
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(16.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    when {
+                        isLoading -> {
+                            Text(
+                                text = "Loading image...",
+                                modifier = Modifier.align(Alignment.Center),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        error != null -> {
+                            Text(
+                                text = error ?: "Unknown error",
+                                modifier = Modifier.align(Alignment.Center),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        bitmap != null -> {
+                            Image(
+                                bitmap = bitmap!!.asImageBitmap(),
+                                contentDescription = "Full-screen image",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "No image data",
+                                modifier = Modifier.align(Alignment.Center),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                    
+                    // Add a debug text overlay to see if the container is working
+                    Text(
+                        text = "Path: ${imageData.take(30)}...",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "🖼️ Image not available",
+                        fontSize = 24.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            // Extracted text section
+            if (!imageItem.extractedText.isNullOrEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "📝 Extracted Text:",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = imageItem.extractedText ?: "",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "🔍 No text extracted from image",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+@Composable
     fun SearchResults(
         query: String,
         textItems: List<Any>,
