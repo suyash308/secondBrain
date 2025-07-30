@@ -9,6 +9,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
@@ -27,6 +29,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
@@ -75,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private val IMAGE_ITEMS_KEY = "image_items"
     private val LINK_ITEMS_KEY = "link_items"
     private val IMAGE_METADATA_KEY = "image_metadata"
+    private val IMAGE_ADDED_TRIGGER_KEY = "image_added_trigger"
     private val gson = Gson()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     
@@ -183,6 +188,11 @@ class MainActivity : ComponentActivity() {
                         )
                         addToCategory(IMAGE_COUNT_KEY, IMAGE_ITEMS_KEY, imageItem)
                         
+                        // Set trigger flag for immediate feedback
+                        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                            .putLong(IMAGE_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+                            .apply()
+                        
                         // Start OCR processing with local path if available
                         if (localPath != null) {
                             // Extract the actual file path from the file:// URI
@@ -217,6 +227,11 @@ class MainActivity : ComponentActivity() {
         // Add to category (this will increment count and save to SharedPreferences)
         addToCategory(IMAGE_COUNT_KEY, IMAGE_ITEMS_KEY, imageItem)
         
+        // Set trigger flag for immediate feedback
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putLong(IMAGE_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+            .apply()
+        
         // Start OCR processing
         if (localPath != null) {
             val filePath = localPath.removePrefix("file://")
@@ -228,15 +243,17 @@ class MainActivity : ComponentActivity() {
             processImageWithOCR(uri)
         }
         
-        // Trigger UI refresh after adding image
-        lifecycleScope.launch {
-            delay(100) // Small delay to ensure data is saved
-            // The UI will refresh automatically when the user returns to the main screen
-        }
+        // Trigger immediate feedback for image addition
+        // This will be handled by the CategoryCounter composable
     }
     
     private fun launchGalleryPicker() {
         galleryLauncher.launch("image/*")
+    }
+    
+    private fun triggerImageAddedFeedback() {
+        // This will be called from CategoryCounter when an image is added
+        // The actual feedback is handled within the CategoryCounter composable
     }
 
     private fun addToCategory(countKey: String, itemsKey: String, item: Any) {
@@ -359,7 +376,8 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun CategoryCounter(
-        onUploadImage: () -> Unit = {}
+        onUploadImage: () -> Unit = {},
+        onImageAdded: () -> Unit = {}
     ) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         var textCount by remember { mutableStateOf(prefs.getInt(TEXT_COUNT_KEY, 0)) }
@@ -372,6 +390,16 @@ class MainActivity : ComponentActivity() {
         var ocrUpdateTrigger by remember { mutableStateOf(0L) }
         var forceRefresh by remember { mutableStateOf(0) }
         var selectedImageItem by remember { mutableStateOf<ImageItem?>(null) }
+        
+        // Animation state for counter highlight
+        var imageCountAnimationTrigger by remember { mutableStateOf(0) }
+        val imageCountScale by animateFloatAsState(
+            targetValue = if (imageCountAnimationTrigger > 0) 1.2f else 1f,
+            animationSpec = tween(durationMillis = 300),
+            label = "imageCountScale"
+        )
+        
+
 
         // Function to refresh data
         fun refreshData() {
@@ -391,6 +419,18 @@ class MainActivity : ComponentActivity() {
             val imageItems = getItems(prefs, IMAGE_ITEMS_KEY)
             val linkItems = getItems(prefs, LINK_ITEMS_KEY)
             println("DEBUG: Actual items count - Text: ${textItems.size}, Image: ${imageItems.size}, Link: ${linkItems.size}")
+        }
+        
+        // Function to trigger visual feedback for image addition
+        fun triggerImageAddedFeedback() {
+            // Trigger counter animation
+            imageCountAnimationTrigger++
+            
+            // Reset animation trigger after animation completes
+            lifecycleScope.launch {
+                delay(300)
+                imageCountAnimationTrigger = 0
+            }
         }
 
         // Update counts when app becomes active
@@ -424,6 +464,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        
+        // Track when images are added for immediate feedback
+        var imageAddedTrigger by remember { mutableStateOf(0L) }
+        
+        // Monitor SharedPreferences for image addition trigger
+        LaunchedEffect(Unit) {
+            while (true) {
+                val trigger = prefs.getLong(IMAGE_ADDED_TRIGGER_KEY, 0L)
+                if (trigger > imageAddedTrigger) {
+                    imageAddedTrigger = trigger
+                    // Update counter immediately
+                    imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
+                    // Trigger animation
+                    triggerImageAddedFeedback()
+                }
+                delay(100) // Check every 100ms
+            }
+        }
 
 
 
@@ -434,8 +492,8 @@ class MainActivity : ComponentActivity() {
                 FullScreenImageViewer(
                     imageItem = selectedImageItem!!,
                     onClose = { selectedImageItem = null },
-                    modifier = Modifier.padding(innerPadding)
-                )
+                        modifier = Modifier.padding(innerPadding)
+                    )
             } else {
                 when (currentScreen) {
                 "main" -> {
@@ -446,30 +504,30 @@ class MainActivity : ComponentActivity() {
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Header with refresh button
-                        Row(
+                        // Header
+                        Text(
+                            text = "Second Brain",
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        // Search Bar at the top
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { 
+                                searchQuery = it
+                                isSearching = it.isNotEmpty()
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 24.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Second Brain",
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Button(
-                                onClick = { 
-                                    println("DEBUG: Manual refresh triggered")
-                                    refreshData() 
-                                },
-                                modifier = Modifier.padding(start = 8.dp)
-                            ) {
-                                Text("Refresh")
-                            }
-                        }
+                                .padding(bottom = 16.dp),
+                            placeholder = { Text("Search in text and images...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
 
                         if (isSearching) {
                             // Search Results with back button
@@ -499,7 +557,10 @@ class MainActivity : ComponentActivity() {
                                 SearchResults(
                                     query = searchQuery,
                                     textItems = getItems(prefs, TEXT_ITEMS_KEY),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    onImageClick = { imageItem ->
+                                        selectedImageItem = imageItem
+                                    }
                                 )
                             }
                         } else {
@@ -527,7 +588,12 @@ class MainActivity : ComponentActivity() {
                                     title = "Image",
                                     count = imageCount,
                                     color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .graphicsLayer {
+                                            scaleX = imageCountScale
+                                            scaleY = imageCountScale
+                                        },
                                     onClick = { 
                                         println("DEBUG: Image folder clicked, currentScreen set to 'image'")
                                         currentScreen = "image" 
@@ -607,22 +673,6 @@ class MainActivity : ComponentActivity() {
                                 Text("Reset All")
                             }
                         }
-
-                        // Search Bar at the bottom
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { 
-                                searchQuery = it
-                                isSearching = it.isNotEmpty()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 16.dp),
-                            placeholder = { Text("Search in text and images...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
                     }
                 }
                 "text" -> {
@@ -1140,7 +1190,8 @@ class MainActivity : ComponentActivity() {
     fun SearchResults(
         query: String,
         textItems: List<Any>,
-        modifier: Modifier = Modifier
+        modifier: Modifier = Modifier,
+        onImageClick: ((ImageItem) -> Unit)? = null
     ) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val imageItems = getItems(prefs, IMAGE_ITEMS_KEY) as List<ImageItem>
@@ -1234,7 +1285,12 @@ class MainActivity : ComponentActivity() {
                     // Image items (OCR text hidden but searchable)
                     items(filteredImageItems.reversed()) { item ->
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { onImageClick?.invoke(item) },
                             shape = RoundedCornerShape(8.dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
