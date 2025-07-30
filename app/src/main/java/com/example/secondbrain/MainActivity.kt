@@ -14,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -30,12 +32,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.secondbrain.ui.theme.SecondBrainTheme
@@ -46,6 +51,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
@@ -874,9 +880,9 @@ class MainActivity : ComponentActivity() {
         var isLoading by remember { mutableStateOf(true) }
         var error by remember { mutableStateOf<String?>(null) }
         
-        // Zoom state
-        var scale by remember { mutableStateOf(1f) }
-        var offset by remember { mutableStateOf(Offset.Zero) }
+        // Swipe to close state
+        var dragOffset by remember { mutableStateOf(Offset.Zero) }
+        var isDragging by remember { mutableStateOf(false) }
         
         // Load bitmap in LaunchedEffect
         LaunchedEffect(imageData) {
@@ -918,27 +924,27 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.9f))
-            ) {
-                // Close button
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                        .size(48.dp)
-                        .background(
-                            color = Color.Black.copy(alpha = 0.5f),
-                            shape = CircleShape
+                    .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { isDragging = true },
+                            onDragEnd = {
+                                isDragging = false
+                                // Close if dragged far enough
+                                if (kotlin.math.abs(dragOffset.y) > 200f) {
+                                    onClose()
+                                } else {
+                                    // Reset position
+                                    dragOffset = Offset.Zero
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragOffset += Offset(dragAmount.x, dragAmount.y)
+                            }
                         )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                
+                    }
+            ) {
                 // Image content
                 Box(
                     modifier = Modifier
@@ -972,38 +978,54 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         bitmap != null -> {
-                            // Zoomable image
+                            // Zoom state
+                            var scale by remember { mutableStateOf(1f) }
+                            var offset by remember { mutableStateOf(Offset.Zero) }
+                            
+                            // Transformable state for zoom and pan
                             val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
-                                scale *= zoomChange
-                                offset += offsetChange
+                                if (!isDragging) {
+                                    scale *= zoomChange
+                                    offset += offsetChange
+                                    
+                                    // Limit zoom range
+                                    if (scale < 0.5f) scale = 0.5f
+                                    if (scale > 3f) scale = 3f
+                                }
                             }
                             
-                            LaunchedEffect(transformableState) {
-                                snapshotFlow { transformableState.isTransformInProgress }
-                                    .collect { isTransformInProgress ->
-                                        if (!isTransformInProgress) {
-                                            // Reset zoom if it gets too small
-                                            if (scale < 0.5f) {
-                                                scale = 1f
-                                                offset = Offset.Zero
-                                            }
-                                            // Limit maximum zoom
-                                            if (scale > 3f) {
-                                                scale = 3f
-                                            }
-                                        }
-                                    }
-                            }
+                            // Double tap to zoom
+                            var doubleTapScale by remember { mutableStateOf(1f) }
                             
                             Image(
                                 bitmap = bitmap!!.asImageBitmap(),
                                 contentDescription = "Full-screen image",
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .graphicsLayer(
+                                        scaleX = scale * doubleTapScale,
+                                        scaleY = scale * doubleTapScale,
+                                        translationX = offset.x,
+                                        translationY = offset.y
+                                    )
                                     .transformable(
                                         state = transformableState,
                                         lockRotationOnZoomPan = true
-                                    ),
+                                    )
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                // Toggle between 1x and 2x zoom
+                                                if (doubleTapScale == 1f) {
+                                                    doubleTapScale = 2f
+                                                    offset = Offset.Zero
+                                                } else {
+                                                    doubleTapScale = 1f
+                                                    offset = Offset.Zero
+                                                }
+                                            }
+                                        )
+                                    },
                                 contentScale = ContentScale.Fit
                             )
                         }
@@ -1015,6 +1037,22 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
+                
+                // Swipe indicator
+                if (isDragging) {
+                    Text(
+                        text = if (kotlin.math.abs(dragOffset.y) > 100f) "Release to close" else "Swipe down to close",
+                        color = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 32.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
                 }
             }
         }
