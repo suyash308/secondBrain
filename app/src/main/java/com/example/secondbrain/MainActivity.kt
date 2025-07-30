@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +23,9 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Add
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -73,6 +77,15 @@ class MainActivity : ComponentActivity() {
     private val IMAGE_METADATA_KEY = "image_metadata"
     private val gson = Gson()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    
+    // Gallery picker launcher
+    private val galleryLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { selectedUri ->
+            handleGalleryImageSelection(selectedUri)
+        }
+    }
     
 
 
@@ -131,7 +144,9 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             SecondBrainTheme {
-                CategoryCounter()
+                CategoryCounter(
+                    onUploadImage = { launchGalleryPicker() }
+                )
             }
         }
     }
@@ -188,6 +203,40 @@ class MainActivity : ComponentActivity() {
     private fun isUrl(text: String): Boolean {
         return text.startsWith("http://") || text.startsWith("https://") || 
                text.startsWith("www.") || text.contains("://")
+    }
+    
+    private fun handleGalleryImageSelection(uri: Uri) {
+        // Copy image to internal storage
+        val localPath = copyImageToInternalStorage(uri)
+        val imageItem = ImageItem(
+            originalUri = uri.toString(),
+            localPath = localPath ?: "",
+            extractedText = "" // Will be updated after OCR
+        )
+        
+        // Add to category (this will increment count and save to SharedPreferences)
+        addToCategory(IMAGE_COUNT_KEY, IMAGE_ITEMS_KEY, imageItem)
+        
+        // Start OCR processing
+        if (localPath != null) {
+            val filePath = localPath.removePrefix("file://")
+            val file = File(filePath)
+            println("DEBUG: Starting OCR with gallery image: ${file.absolutePath}")
+            processImageWithOCR(file)
+        } else {
+            println("DEBUG: Starting OCR with gallery URI: $uri")
+            processImageWithOCR(uri)
+        }
+        
+        // Trigger UI refresh after adding image
+        lifecycleScope.launch {
+            delay(100) // Small delay to ensure data is saved
+            // The UI will refresh automatically when the user returns to the main screen
+        }
+    }
+    
+    private fun launchGalleryPicker() {
+        galleryLauncher.launch("image/*")
     }
 
     private fun addToCategory(countKey: String, itemsKey: String, item: Any) {
@@ -309,7 +358,9 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun CategoryCounter() {
+    fun CategoryCounter(
+        onUploadImage: () -> Unit = {}
+    ) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         var textCount by remember { mutableStateOf(prefs.getInt(TEXT_COUNT_KEY, 0)) }
         var imageCount by remember { mutableStateOf(prefs.getInt(IMAGE_COUNT_KEY, 0)) }
@@ -352,6 +403,25 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(currentScreen) {
             if (currentScreen == "main") {
                 refreshData()
+            }
+        }
+        
+        // Handle system back button
+        BackHandler {
+            when {
+                isSearching -> {
+                    // If in search mode, go back to main screen
+                    isSearching = false
+                    searchQuery = ""
+                }
+                currentScreen != "main" -> {
+                    // If in a category screen, go back to main
+                    currentScreen = "main"
+                }
+                else -> {
+                    // If on main screen, let the system handle back (close app)
+                    // This will be handled by the system
+                }
             }
         }
 
@@ -402,12 +472,36 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (isSearching) {
-                            // Search Results
-                            SearchResults(
-                                query = searchQuery,
-                                textItems = getItems(prefs, TEXT_ITEMS_KEY),
-                                modifier = Modifier.weight(1f)
-                            )
+                            // Search Results with back button
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Header with back button
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = { 
+                                            isSearching = false
+                                            searchQuery = ""
+                                        }
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to main")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Search Results",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                SearchResults(
+                                    query = searchQuery,
+                                    textItems = getItems(prefs, TEXT_ITEMS_KEY),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         } else {
                             Text(
                                 text = "Your categorized content",
@@ -450,6 +544,37 @@ class MainActivity : ComponentActivity() {
                             }
 
                             Spacer(modifier = Modifier.height(32.dp))
+
+                            // Upload Image Button
+                            Button(
+                                onClick = { onUploadImage() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 32.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Upload",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Upload Image",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
 
                             Text(
                                 text = "Tap on folders to view your shared content!",
@@ -513,7 +638,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = { currentScreen = "main" }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
@@ -542,7 +667,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = { currentScreen = "main" }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
@@ -574,7 +699,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = { currentScreen = "main" }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
