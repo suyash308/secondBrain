@@ -300,15 +300,26 @@ class MainActivity : ComponentActivity() {
         // Function to refresh data
         fun refreshData() {
             println("DEBUG: refreshData() called")
+            println("DEBUG: Reading from SharedPreferences - TEXT_COUNT_KEY: ${prefs.getInt(TEXT_COUNT_KEY, 0)}")
+            println("DEBUG: Reading from SharedPreferences - IMAGE_COUNT_KEY: ${prefs.getInt(IMAGE_COUNT_KEY, 0)}")
+            println("DEBUG: Reading from SharedPreferences - LINK_COUNT_KEY: ${prefs.getInt(LINK_COUNT_KEY, 0)}")
+            
             textCount = prefs.getInt(TEXT_COUNT_KEY, 0)
             imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
             linkCount = prefs.getInt(LINK_COUNT_KEY, 0)
             refreshTrigger++ // Trigger recomposition
             println("DEBUG: refreshData() completed - textCount: $textCount, imageCount: $imageCount, linkCount: $linkCount, refreshTrigger: $refreshTrigger")
+            
+            // Check if there's actual data in the items
+            val textItems = getItems(prefs, TEXT_ITEMS_KEY)
+            val imageItems = getItems(prefs, IMAGE_ITEMS_KEY)
+            val linkItems = getItems(prefs, LINK_ITEMS_KEY)
+            println("DEBUG: Actual items count - Text: ${textItems.size}, Image: ${imageItems.size}, Link: ${linkItems.size}")
         }
 
         // Update counts when app becomes active
         LaunchedEffect(Unit) {
+            println("DEBUG: LaunchedEffect(Unit) triggered - loading data from SharedPreferences")
             refreshData()
         }
 
