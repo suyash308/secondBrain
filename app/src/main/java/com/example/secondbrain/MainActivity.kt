@@ -53,19 +53,19 @@ class MainActivity : ComponentActivity() {
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     data class ImageItem(
-        val originalUri: String,
-        val localPath: String = "",
-        val extractedText: String = "",
+        val originalUri: String? = null,
+        val localPath: String? = null,
+        val extractedText: String? = null,
         val timestamp: Long = System.currentTimeMillis()
     )
 
     data class TextItem(
-        val content: String,
+        val content: String? = null,
         val timestamp: Long = System.currentTimeMillis()
     )
 
     data class LinkItem(
-        val url: String,
+        val url: String? = null,
         val timestamp: Long = System.currentTimeMillis()
     )
 
@@ -219,19 +219,25 @@ class MainActivity : ComponentActivity() {
                         
                         if (extractedText.isNotEmpty()) {
                             // Update the image item with extracted text
+                            // We need to match against the original URI that was saved
                             val imageUri = when (imageInput) {
-                                is File -> imageInput.absolutePath
-                                is Uri -> imageInput.toString()
+                                is File -> {
+                                    // For File, we need to find the matching ImageItem by localPath
+                                    val fileUri = "file://${imageInput.absolutePath}"
+                                    println("DEBUG: File input, looking for localPath: $fileUri")
+                                    fileUri
+                                }
+                                is Uri -> {
+                                    // For Uri, use the original URI
+                                    println("DEBUG: URI input, looking for originalUri: $imageInput")
+                                    imageInput.toString()
+                                }
                                 else -> return@addOnSuccessListener
                             }
                             println("DEBUG: Updating image with URI: $imageUri")
                             updateImageWithExtractedText(imageUri, extractedText)
                             
-                            // Trigger UI update
-                            lifecycleScope.launch(Dispatchers.Main) {
-                                println("DEBUG: Triggering UI update on main thread")
-                                // This will trigger a recomposition
-                            }
+                            println("DEBUG: OCR completed and data saved successfully")
                         } else {
                             println("DEBUG: No text extracted from image - text is empty")
                         }
@@ -255,20 +261,27 @@ class MainActivity : ComponentActivity() {
         val items: MutableList<ImageItem> = gson.fromJson(itemsJson, type) ?: mutableListOf()
         
         // Find and update the image item
+        println("DEBUG: Looking for image with URI: $imageUri")
+        println("DEBUG: Current items count: ${items.size}")
+        items.forEachIndexed { index, item ->
+            println("DEBUG: Item $index - originalUri: '${item.originalUri}', localPath: '${item.localPath}'")
+        }
+        
         val updatedItems = items.map { item ->
             if (item.originalUri == imageUri || item.localPath == imageUri) {
-                println("DEBUG: Updating image item with OCR text: '$extractedText'")
+                println("DEBUG: Found matching image item, updating with OCR text: '$extractedText'")
                 item.copy(extractedText = extractedText)
             } else {
                 item
             }
         }
         
+        // Check if any item was updated
+        val wasUpdated = updatedItems.any { it.extractedText == extractedText }
+        println("DEBUG: Was any item updated? $wasUpdated")
+        
         prefs.edit().putString(IMAGE_ITEMS_KEY, gson.toJson(updatedItems)).apply()
         println("DEBUG: Image metadata updated successfully")
-        
-        // Trigger UI refresh by updating a refresh timestamp
-        prefs.edit().putLong("last_ocr_update", System.currentTimeMillis()).apply()
     }
 
     @Composable
@@ -282,13 +295,16 @@ class MainActivity : ComponentActivity() {
         var isSearching by remember { mutableStateOf(false) }
         var refreshTrigger by remember { mutableStateOf(0) }
         var ocrUpdateTrigger by remember { mutableStateOf(0L) }
+        var forceRefresh by remember { mutableStateOf(0) }
 
         // Function to refresh data
         fun refreshData() {
+            println("DEBUG: refreshData() called")
             textCount = prefs.getInt(TEXT_COUNT_KEY, 0)
             imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
             linkCount = prefs.getInt(LINK_COUNT_KEY, 0)
             refreshTrigger++ // Trigger recomposition
+            println("DEBUG: refreshData() completed - textCount: $textCount, imageCount: $imageCount, linkCount: $linkCount, refreshTrigger: $refreshTrigger")
         }
 
         // Update counts when app becomes active
@@ -303,24 +319,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Refresh data when refreshTrigger changes
-        LaunchedEffect(refreshTrigger) {
-            refreshData()
-        }
 
-        // Listen for OCR updates and refresh UI
-        LaunchedEffect(Unit) {
-            var lastOcrUpdate = prefs.getLong("last_ocr_update", 0)
-            while (true) {
-                delay(1000) // Check every second
-                val currentOcrUpdate = prefs.getLong("last_ocr_update", 0)
-                if (currentOcrUpdate > lastOcrUpdate) {
-                    println("DEBUG: OCR update detected, refreshing UI")
-                    lastOcrUpdate = currentOcrUpdate
-                    refreshData()
-                }
-            }
-        }
 
         Scaffold(
             modifier = Modifier.fillMaxSize()
@@ -403,13 +402,16 @@ class MainActivity : ComponentActivity() {
                                     onClick = { currentScreen = "text" }
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                CategoryCard(
-                                    title = "Image",
-                                    count = imageCount,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { currentScreen = "image" }
-                                )
+                                                            CategoryCard(
+                                title = "Image",
+                                count = imageCount,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.weight(1f),
+                                onClick = { 
+                                    println("DEBUG: Image folder clicked, currentScreen set to 'image'")
+                                    currentScreen = "image" 
+                                }
+                            )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 CategoryCard(
                                     title = "Link",
@@ -625,6 +627,17 @@ class MainActivity : ComponentActivity() {
         category: String,
         modifier: Modifier = Modifier
     ) {
+        println("DEBUG: ContentList called with ${items.size} items for category: $category")
+        items.forEachIndexed { index, item ->
+            println("DEBUG: Item $index is ${item::class.simpleName}")
+            if (item is ImageItem) {
+                println("DEBUG: ImageItem $index - URI: ${item.originalUri}, LocalPath: ${item.localPath}, HasText: ${!item.extractedText.isNullOrEmpty()}, TextLength: ${item.extractedText?.length ?: 0}")
+                if (!item.extractedText.isNullOrEmpty()) {
+                    println("DEBUG: ImageItem $index - Extracted text preview: '${item.extractedText?.take(100)}...'")
+                }
+            }
+        }
+        
         if (items.isEmpty()) {
             Column(
                 modifier = modifier
@@ -728,7 +741,7 @@ class MainActivity : ComponentActivity() {
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
-                                                    text = item.extractedText,
+                                                    text = item.extractedText ?: "No text extracted",
                                                     fontSize = 14.sp,
                                                     color = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.fillMaxWidth()
@@ -878,7 +891,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = item.content,
+                                        text = item.content ?: "No content",
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.fillMaxWidth()
@@ -951,7 +964,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = item.extractedText,
+                                    text = item.extractedText ?: "No text extracted",
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.fillMaxWidth()
