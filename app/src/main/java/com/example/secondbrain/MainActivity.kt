@@ -279,6 +279,16 @@ class MainActivity : ComponentActivity() {
         println("DEBUG: Link metadata updated successfully")
     }
     
+    private fun openUrlInBrowser(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+            println("DEBUG: Opening URL in browser: $url")
+        } catch (e: Exception) {
+            println("DEBUG: Error opening URL: ${e.message}")
+        }
+    }
+    
     private fun handleGalleryImageSelection(uri: Uri) {
         // Copy image to internal storage
         val localPath = copyImageToInternalStorage(uri)
@@ -1048,7 +1058,14 @@ class MainActivity : ComponentActivity() {
                                 is LinkItem -> {
                                     // Display link with metadata
                                     Column(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) { 
+                                                item.url?.let { url -> openUrlInBrowser(url) }
+                                            },
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         // Title or URL
@@ -1482,7 +1499,14 @@ class MainActivity : ComponentActivity() {
                     // Link items
                     items(filteredLinkItems.reversed()) { item ->
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { 
+                                    item.url?.let { url -> openUrlInBrowser(url) }
+                                },
                             shape = RoundedCornerShape(8.dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
