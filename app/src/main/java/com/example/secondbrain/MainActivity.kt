@@ -73,6 +73,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import com.example.secondbrain.data.DatabaseManager
 
 class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "SecondBrainPrefs"
@@ -84,8 +85,11 @@ class MainActivity : ComponentActivity() {
     private val LINK_ITEMS_KEY = "link_items"
     private val IMAGE_METADATA_KEY = "image_metadata"
     private val IMAGE_ADDED_TRIGGER_KEY = "image_added_trigger"
+    private val TEXT_ADDED_TRIGGER_KEY = "text_added_trigger"
+    private val LINK_ADDED_TRIGGER_KEY = "link_added_trigger"
     private val gson = Gson()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private lateinit var databaseManager: DatabaseManager
     
     // Gallery picker launcher
     private val galleryLauncher = registerForActivityResult(
@@ -149,6 +153,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // Initialize database manager
+        databaseManager = DatabaseManager(this)
+        
         // Handle shared content only if it's a share intent
         if (intent?.action == Intent.ACTION_SEND) {
             handleSharedContent(intent)
@@ -181,6 +188,11 @@ class MainActivity : ComponentActivity() {
                             // Add basic link item first for immediate UI update
                             addToCategory(LINK_COUNT_KEY, LINK_ITEMS_KEY, LinkItem(sharedText))
                             
+                            // Set trigger flag for immediate feedback
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                                .putLong(LINK_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+                                .apply()
+                            
                             // Fetch metadata in background and update
                             lifecycleScope.launch(Dispatchers.IO) {
                                 val linkItemWithMetadata = fetchLinkMetadata(sharedText)
@@ -188,6 +200,11 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             addToCategory(TEXT_COUNT_KEY, TEXT_ITEMS_KEY, TextItem(sharedText))
+                            
+                            // Set trigger flag for immediate feedback
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                                .putLong(TEXT_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+                                .apply()
                         }
                     }
                 }
@@ -331,23 +348,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addToCategory(countKey: String, itemsKey: String, item: Any) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        
-        // Increment count
-        val currentCount = prefs.getInt(countKey, 0)
-        prefs.edit().putInt(countKey, currentCount + 1).apply()
-        
-        // Add to items list
-        val itemsJson = prefs.getString(itemsKey, "[]")
-        val type = when (item) {
-            is TextItem -> object : TypeToken<List<TextItem>>() {}.type
-            is ImageItem -> object : TypeToken<List<ImageItem>>() {}.type
-            is LinkItem -> object : TypeToken<List<LinkItem>>() {}.type
-            else -> object : TypeToken<List<String>>() {}.type
+        lifecycleScope.launch(Dispatchers.IO) {
+            when (item) {
+                is TextItem -> {
+                    databaseManager.insertTextItem(item)
+                    // Set trigger for UI update
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putLong(TEXT_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+                        .apply()
+                }
+                is ImageItem -> {
+                    databaseManager.insertImageItem(item)
+                    // Set trigger for UI update
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putLong(IMAGE_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+                        .apply()
+                }
+                is LinkItem -> {
+                    databaseManager.insertLinkItem(item)
+                    // Set trigger for UI update
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putLong(LINK_ADDED_TRIGGER_KEY, System.currentTimeMillis())
+                        .apply()
+                }
+            }
         }
-        val items: MutableList<Any> = gson.fromJson(itemsJson, type) ?: mutableListOf()
-        items.add(item)
-        prefs.edit().putString(itemsKey, gson.toJson(items)).apply()
     }
 
     private fun processImageWithOCR(imageInput: Any) {
@@ -419,33 +444,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateImageWithExtractedText(imageUri: String, extractedText: String) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val itemsJson = prefs.getString(IMAGE_ITEMS_KEY, "[]")
-        val type = object : TypeToken<List<ImageItem>>() {}.type
-        val items: MutableList<ImageItem> = gson.fromJson(itemsJson, type) ?: mutableListOf()
-        
-        // Find and update the image item
-        println("DEBUG: Looking for image with URI: $imageUri")
-        println("DEBUG: Current items count: ${items.size}")
-        items.forEachIndexed { index, item ->
-            println("DEBUG: Item $index - originalUri: '${item.originalUri}', localPath: '${item.localPath}'")
-        }
-        
-        val updatedItems = items.map { item ->
-            if (item.originalUri == imageUri || item.localPath == imageUri) {
-                println("DEBUG: Found matching image item, updating with OCR text: '$extractedText'")
-                item.copy(extractedText = extractedText)
-            } else {
-                item
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                println("DEBUG: Updating image with URI: $imageUri")
+                databaseManager.updateImageExtractedTextByUri(imageUri, extractedText)
+                println("DEBUG: Image metadata updated successfully in database")
+            } catch (e: Exception) {
+                println("DEBUG: Error updating image with extracted text: ${e.message}")
+                e.printStackTrace()
             }
         }
-        
-        // Check if any item was updated
-        val wasUpdated = updatedItems.any { it.extractedText == extractedText }
-        println("DEBUG: Was any item updated? $wasUpdated")
-        
-        prefs.edit().putString(IMAGE_ITEMS_KEY, gson.toJson(updatedItems)).apply()
-        println("DEBUG: Image metadata updated successfully")
     }
 
     @Composable
@@ -453,10 +461,14 @@ class MainActivity : ComponentActivity() {
         onUploadImage: () -> Unit = {},
         onImageAdded: () -> Unit = {}
     ) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        var textCount by remember { mutableStateOf(prefs.getInt(TEXT_COUNT_KEY, 0)) }
-        var imageCount by remember { mutableStateOf(prefs.getInt(IMAGE_COUNT_KEY, 0)) }
-        var linkCount by remember { mutableStateOf(prefs.getInt(LINK_COUNT_KEY, 0)) }
+        // Use Flow-based data from DatabaseManager
+        val textItems by databaseManager.getAllTextItems().collectAsState(initial = emptyList())
+        val imageItems by databaseManager.getAllImageItems().collectAsState(initial = emptyList())
+        val linkItems by databaseManager.getAllLinkItems().collectAsState(initial = emptyList())
+        
+        val textCount = textItems.size
+        val imageCount = imageItems.size
+        val linkCount = linkItems.size
         var currentScreen by remember { mutableStateOf("main") }
         var searchQuery by remember { mutableStateOf("") }
         var isSearching by remember { mutableStateOf(false) }
@@ -467,32 +479,33 @@ class MainActivity : ComponentActivity() {
         
         // Animation state for counter highlight
         var imageCountAnimationTrigger by remember { mutableStateOf(0) }
+        var textCountAnimationTrigger by remember { mutableStateOf(0) }
+        var linkCountAnimationTrigger by remember { mutableStateOf(0) }
+        
         val imageCountScale by animateFloatAsState(
             targetValue = if (imageCountAnimationTrigger > 0) 1.2f else 1f,
             animationSpec = tween(durationMillis = 300),
             label = "imageCountScale"
         )
         
+        val textCountScale by animateFloatAsState(
+            targetValue = if (textCountAnimationTrigger > 0) 1.2f else 1f,
+            animationSpec = tween(durationMillis = 300),
+            label = "textCountScale"
+        )
+        
+        val linkCountScale by animateFloatAsState(
+            targetValue = if (linkCountAnimationTrigger > 0) 1.2f else 1f,
+            animationSpec = tween(durationMillis = 300),
+            label = "linkCountScale"
+        )
+        
 
 
-        // Function to refresh data
+        // Function to refresh data (no longer needed with Flow-based data)
         fun refreshData() {
-            println("DEBUG: refreshData() called")
-            println("DEBUG: Reading from SharedPreferences - TEXT_COUNT_KEY: ${prefs.getInt(TEXT_COUNT_KEY, 0)}")
-            println("DEBUG: Reading from SharedPreferences - IMAGE_COUNT_KEY: ${prefs.getInt(IMAGE_COUNT_KEY, 0)}")
-            println("DEBUG: Reading from SharedPreferences - LINK_COUNT_KEY: ${prefs.getInt(LINK_COUNT_KEY, 0)}")
-            
-            textCount = prefs.getInt(TEXT_COUNT_KEY, 0)
-            imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
-            linkCount = prefs.getInt(LINK_COUNT_KEY, 0)
-            refreshTrigger++ // Trigger recomposition
-            println("DEBUG: refreshData() completed - textCount: $textCount, imageCount: $imageCount, linkCount: $linkCount, refreshTrigger: $refreshTrigger")
-            
-            // Check if there's actual data in the items
-            val textItems = getItems(prefs, TEXT_ITEMS_KEY)
-            val imageItems = getItems(prefs, IMAGE_ITEMS_KEY)
-            val linkItems = getItems(prefs, LINK_ITEMS_KEY)
-            println("DEBUG: Actual items count - Text: ${textItems.size}, Image: ${imageItems.size}, Link: ${linkItems.size}")
+            println("DEBUG: refreshData() called - Flow-based data automatically updates")
+            refreshTrigger++ // Trigger recomposition if needed
         }
         
         // Function to trigger visual feedback for image addition
@@ -504,6 +517,30 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 delay(300)
                 imageCountAnimationTrigger = 0
+            }
+        }
+        
+        // Function to trigger visual feedback for text addition
+        fun triggerTextAddedFeedback() {
+            // Trigger counter animation
+            textCountAnimationTrigger++
+            
+            // Reset animation trigger after animation completes
+            lifecycleScope.launch {
+                delay(300)
+                textCountAnimationTrigger = 0
+            }
+        }
+        
+        // Function to trigger visual feedback for link addition
+        fun triggerLinkAddedFeedback() {
+            // Trigger counter animation
+            linkCountAnimationTrigger++
+            
+            // Reset animation trigger after animation completes
+            lifecycleScope.launch {
+                delay(300)
+                linkCountAnimationTrigger = 0
             }
         }
 
@@ -539,20 +576,32 @@ class MainActivity : ComponentActivity() {
             }
         }
         
-        // Track when images are added for immediate feedback
+        // Monitor SharedPreferences for trigger updates (for animations)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         var imageAddedTrigger by remember { mutableStateOf(0L) }
+        var textAddedTrigger by remember { mutableStateOf(0L) }
+        var linkAddedTrigger by remember { mutableStateOf(0L) }
         
-        // Monitor SharedPreferences for image addition trigger
         LaunchedEffect(Unit) {
             while (true) {
-                val trigger = prefs.getLong(IMAGE_ADDED_TRIGGER_KEY, 0L)
-                if (trigger > imageAddedTrigger) {
-                    imageAddedTrigger = trigger
-                    // Update counter immediately
-                    imageCount = prefs.getInt(IMAGE_COUNT_KEY, 0)
-                    // Trigger animation
+                val imageTrigger = prefs.getLong(IMAGE_ADDED_TRIGGER_KEY, 0L)
+                if (imageTrigger > imageAddedTrigger) {
+                    imageAddedTrigger = imageTrigger
                     triggerImageAddedFeedback()
                 }
+                
+                val textTrigger = prefs.getLong(TEXT_ADDED_TRIGGER_KEY, 0L)
+                if (textTrigger > textAddedTrigger) {
+                    textAddedTrigger = textTrigger
+                    triggerTextAddedFeedback()
+                }
+                
+                val linkTrigger = prefs.getLong(LINK_ADDED_TRIGGER_KEY, 0L)
+                if (linkTrigger > linkAddedTrigger) {
+                    linkAddedTrigger = linkTrigger
+                    triggerLinkAddedFeedback()
+                }
+                
                 delay(100) // Check every 100ms
             }
         }
@@ -639,7 +688,9 @@ class MainActivity : ComponentActivity() {
                                 
                                 SearchResults(
                                     query = searchQuery,
-                                    textItems = getItems(prefs, TEXT_ITEMS_KEY),
+                                    textItems = textItems,
+                                    imageItems = imageItems,
+                                    linkItems = linkItems,
                                     modifier = Modifier.weight(1f),
                                     onImageClick = { imageItem ->
                                         selectedImageItem = imageItem
@@ -663,7 +714,12 @@ class MainActivity : ComponentActivity() {
                                     title = "Text",
                                     count = textCount,
                                     color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .graphicsLayer {
+                                            scaleX = textCountScale
+                                            scaleY = textCountScale
+                                        },
                                     onClick = { currentScreen = "text" },
                                     icon = "📄"
                                 )
@@ -687,7 +743,12 @@ class MainActivity : ComponentActivity() {
                                     title = "Link",
                                     count = linkCount,
                                     color = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .graphicsLayer {
+                                            scaleX = linkCountScale
+                                            scaleY = linkCountScale
+                                        },
                                     onClick = { currentScreen = "link" },
                                     icon = "🔗"
                                 )
@@ -734,28 +795,7 @@ class MainActivity : ComponentActivity() {
                                 textAlign = TextAlign.Center
                             )
 
-                            Spacer(modifier = Modifier.height(24.dp))
 
-                            Button(
-                                onClick = {
-                                    prefs.edit()
-                                        .putInt(TEXT_COUNT_KEY, 0)
-                                        .putInt(IMAGE_COUNT_KEY, 0)
-                                        .putInt(LINK_COUNT_KEY, 0)
-                                        .putString(TEXT_ITEMS_KEY, "[]")
-                                        .putString(IMAGE_ITEMS_KEY, "[]")
-                                        .putString(LINK_ITEMS_KEY, "[]")
-                                        .apply()
-                                    textCount = 0
-                                    imageCount = 0
-                                    linkCount = 0
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                )
-                            ) {
-                                Text("Reset All")
-                            }
                         }
                     }
                 }
@@ -783,7 +823,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         ContentList(
-                            items = getItems(prefs, TEXT_ITEMS_KEY),
+                            items = textItems,
                             category = "Text"
                         )
                     }
@@ -812,7 +852,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         ContentList(
-                            items = getItems(prefs, IMAGE_ITEMS_KEY),
+                            items = imageItems,
                             category = "Image",
                             onImageClick = { imageItem ->
                                 selectedImageItem = imageItem
@@ -844,7 +884,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         ContentList(
-                            items = getItems(prefs, LINK_ITEMS_KEY),
+                            items = linkItems,
                             category = "Link"
                         )
                     }
@@ -874,9 +914,9 @@ class MainActivity : ComponentActivity() {
         }
         
         return items
-    }
+}
 
-    @Composable
+@Composable
     fun CategoryCard(
         title: String,
         count: Int,
@@ -913,7 +953,7 @@ class MainActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.Center
             ) {
                 // Icon
-                Text(
+    Text(
                     text = icon,
                     fontSize = 32.sp,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -959,7 +999,7 @@ class MainActivity : ComponentActivity() {
         
         if (items.isEmpty()) {
             Column(
-                modifier = modifier
+        modifier = modifier
                     .fillMaxSize()
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1128,7 +1168,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-        @Composable
+@Composable
     private fun FullScreenImageViewer(
         imageItem: ImageItem,
         onClose: () -> Unit,
@@ -1333,12 +1373,11 @@ class MainActivity : ComponentActivity() {
     private fun SearchResults(
         query: String,
         textItems: List<Any>,
+        imageItems: List<ImageItem>,
+        linkItems: List<LinkItem>,
         modifier: Modifier = Modifier,
         onImageClick: ((ImageItem) -> Unit)? = null
     ) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val imageItems = getItems(prefs, IMAGE_ITEMS_KEY) as List<ImageItem>
-        val linkItems = getItems(prefs, LINK_ITEMS_KEY) as List<LinkItem>
         
         val filteredTextItems = textItems.filter { item ->
             if (item is TextItem) {
