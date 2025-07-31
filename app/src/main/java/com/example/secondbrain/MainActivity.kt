@@ -71,6 +71,8 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 
 class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "SecondBrainPrefs"
@@ -110,6 +112,9 @@ class MainActivity : ComponentActivity() {
 
     data class LinkItem(
         val url: String? = null,
+        val title: String? = null,
+        val description: String? = null,
+        val imageUrl: String? = null,
         val timestamp: Long = System.currentTimeMillis()
     )
 
@@ -173,7 +178,14 @@ class MainActivity : ComponentActivity() {
                     val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
                     if (!sharedText.isNullOrEmpty()) {
                         if (isUrl(sharedText)) {
+                            // Add basic link item first for immediate UI update
                             addToCategory(LINK_COUNT_KEY, LINK_ITEMS_KEY, LinkItem(sharedText))
+                            
+                            // Fetch metadata in background and update
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                val linkItemWithMetadata = fetchLinkMetadata(sharedText)
+                                updateLinkItem(sharedText, linkItemWithMetadata)
+                            }
                         } else {
                             addToCategory(TEXT_COUNT_KEY, TEXT_ITEMS_KEY, TextItem(sharedText))
                         }
@@ -215,6 +227,56 @@ class MainActivity : ComponentActivity() {
     private fun isUrl(text: String): Boolean {
         return text.startsWith("http://") || text.startsWith("https://") || 
                text.startsWith("www.") || text.contains("://")
+    }
+    
+    private fun fetchLinkMetadata(url: String): LinkItem {
+        return try {
+            println("DEBUG: Fetching metadata for URL: $url")
+            
+            val doc: Document = Jsoup.connect(url)
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .timeout(10000)
+                .get()
+            
+            val title = doc.select("title").firstOrNull()?.text() ?: ""
+            val description = doc.select("meta[name=description]").firstOrNull()?.attr("content") ?: ""
+            val ogImage = doc.select("meta[property=og:image]").firstOrNull()?.attr("content") ?: ""
+            val twitterImage = doc.select("meta[name=twitter:image]").firstOrNull()?.attr("content") ?: ""
+            val imageUrl = if (ogImage.isNotEmpty()) ogImage else twitterImage
+            
+            println("DEBUG: Extracted metadata - Title: '$title', Description: '${description.take(100)}...', Image: '$imageUrl'")
+            
+            LinkItem(
+                url = url,
+                title = title,
+                description = description,
+                imageUrl = imageUrl
+            )
+        } catch (e: Exception) {
+            println("DEBUG: Error fetching metadata for $url: ${e.message}")
+            LinkItem(url = url)
+        }
+    }
+    
+    private fun updateLinkItem(originalUrl: String, updatedLinkItem: LinkItem) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val itemsJson = prefs.getString(LINK_ITEMS_KEY, "[]")
+        val type = object : TypeToken<List<LinkItem>>() {}.type
+        val items: MutableList<LinkItem> = gson.fromJson(itemsJson, type) ?: mutableListOf()
+        
+        // Find and update the matching link item
+        val updatedItems = items.map { item ->
+            if (item.url == originalUrl) {
+                println("DEBUG: Updating link item with metadata for: $originalUrl")
+                updatedLinkItem
+            } else {
+                item
+            }
+        }
+        
+        // Save updated items back to SharedPreferences
+        prefs.edit().putString(LINK_ITEMS_KEY, gson.toJson(updatedItems)).apply()
+        println("DEBUG: Link metadata updated successfully")
     }
     
     private fun handleGalleryImageSelection(uri: Uri) {
@@ -984,13 +1046,53 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 is LinkItem -> {
-                                    // Display link content with null safety
-                                    Text(
-                                        text = item.url ?: "No URL",
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    // Display link with metadata
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Title or URL
+                                        Text(
+                                            text = item.title?.take(100) ?: item.url ?: "No URL",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        
+                                        // Description
+                                        if (!item.description.isNullOrEmpty()) {
+                                            Text(
+                                                text = item.description.take(150) + if (item.description.length > 150) "..." else "",
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        
+                                        // URL
+                                        Text(
+                                            text = item.url ?: "No URL",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        
+                                        // Image preview if available
+                                        if (!item.imageUrl.isNullOrEmpty()) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(LocalContext.current)
+                                                    .data(item.imageUrl)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = "Link preview image",
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(120.dp),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        }
+                                    }
                                 }
                                 else -> {
                                     // Fallback for old string format
@@ -1219,6 +1321,7 @@ class MainActivity : ComponentActivity() {
     ) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val imageItems = getItems(prefs, IMAGE_ITEMS_KEY) as List<ImageItem>
+        val linkItems = getItems(prefs, LINK_ITEMS_KEY) as List<LinkItem>
         
         val filteredTextItems = textItems.filter { item ->
             if (item is TextItem) {
@@ -1232,7 +1335,13 @@ class MainActivity : ComponentActivity() {
             !item.extractedText.isNullOrEmpty() && item.extractedText.contains(query, ignoreCase = true)
         }
         
-        val totalResults = filteredTextItems.size + filteredImageItems.size
+        val filteredLinkItems = linkItems.filter { item ->
+            (!item.title.isNullOrEmpty() && item.title.contains(query, ignoreCase = true)) ||
+            (!item.description.isNullOrEmpty() && item.description.contains(query, ignoreCase = true)) ||
+            (!item.url.isNullOrEmpty() && item.url.contains(query, ignoreCase = true))
+        }
+        
+        val totalResults = filteredTextItems.size + filteredImageItems.size + filteredLinkItems.size
 
         Column(modifier = modifier) {
             Text(
@@ -1366,6 +1475,73 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 // OCR text is hidden from UI but still searchable
+                            }
+                        }
+                    }
+                    
+                    // Link items
+                    items(filteredLinkItems.reversed()) { item ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "🔗 Link",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                                
+                                // Title or URL
+                                Text(
+                                    text = item.title?.take(100) ?: item.url ?: "No URL",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                
+                                // Description
+                                if (!item.description.isNullOrEmpty()) {
+                                    Text(
+                                        text = item.description.take(120) + if (item.description.length > 120) "..." else "",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                
+                                // URL
+                                Text(
+                                    text = item.url ?: "No URL",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                
+                                // Image preview if available
+                                if (!item.imageUrl.isNullOrEmpty()) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(item.imageUrl)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "Link preview image",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(80.dp),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
                             }
                         }
                     }

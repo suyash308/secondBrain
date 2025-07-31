@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("org.jsoup:jsoup:1.17.2")
     
     // ML Kit for OCR
     implementation("com.google.mlkit:text-recognition:16.0.0")
