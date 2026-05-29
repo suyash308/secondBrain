@@ -1,9 +1,13 @@
 package com.example.secondbrain.data
 
 import android.content.Context
+import com.example.secondbrain.data.entities.ImageItemTagCrossRef
+import com.example.secondbrain.data.entities.LinkItemTagCrossRef
+import com.example.secondbrain.data.entities.TagEntity
 import com.example.secondbrain.data.entities.TextItemEntity
 import com.example.secondbrain.data.entities.ImageItemEntity
 import com.example.secondbrain.data.entities.LinkItemEntity
+import com.example.secondbrain.data.entities.TextItemTagCrossRef
 import com.example.secondbrain.data.mapper.DataMapper
 import com.example.secondbrain.data.repository.TextItemRepository
 import com.example.secondbrain.data.repository.ImageItemRepository
@@ -14,12 +18,15 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+enum class ContentType { TEXT, IMAGE, LINK }
+
 class DatabaseManager(private val context: Context) {
     
     private val database = AppDatabase.getDatabase(context)
     private val textItemDao = database.textItemDao()
     private val imageItemDao = database.imageItemDao()
     private val linkItemDao = database.linkItemDao()
+    private val tagDao = database.tagDao()
     private val gson = Gson()
     private val textItemRepository = TextItemRepository(textItemDao)
     private val imageItemRepository = ImageItemRepository(imageItemDao)
@@ -44,6 +51,7 @@ class DatabaseManager(private val context: Context) {
     }
     
     suspend fun deleteTextItem(item: TextItemEntity) {
+        tagDao.deleteTagsForTextItem(item.id)
         textItemRepository.delete(item)
     }
 
@@ -85,6 +93,7 @@ class DatabaseManager(private val context: Context) {
     }
     
     suspend fun deleteImageItem(item: ImageItemEntity) {
+        tagDao.deleteTagsForImageItem(item.id)
         imageItemRepository.delete(item)
     }
 
@@ -111,6 +120,7 @@ class DatabaseManager(private val context: Context) {
     }
     
     suspend fun deleteLinkItem(item: LinkItemEntity) {
+        tagDao.deleteTagsForLinkItem(item.id)
         linkItemRepository.delete(item)
     }
 
@@ -126,6 +136,49 @@ class DatabaseManager(private val context: Context) {
         linkItemDao.updateLinkMetadata(url, title, description, imageUrl)
     }
     
+    // Tags
+    suspend fun addTagToItem(tagName: String, itemId: Long, contentType: ContentType) {
+        val existingOrNew = tagDao.searchTags(tagName).firstOrNull { it.name == tagName }
+        val tagId = if (existingOrNew != null) {
+            existingOrNew.id
+        } else {
+            tagDao.insertTag(TagEntity(name = tagName)).toInt()
+        }
+        when (contentType) {
+            ContentType.TEXT  -> tagDao.addTagToTextItem(TextItemTagCrossRef(itemId, tagId))
+            ContentType.IMAGE -> tagDao.addTagToImageItem(ImageItemTagCrossRef(itemId, tagId))
+            ContentType.LINK  -> tagDao.addTagToLinkItem(LinkItemTagCrossRef(itemId, tagId))
+        }
+    }
+
+    suspend fun removeTagFromItem(tagId: Int, itemId: Long, contentType: ContentType) {
+        when (contentType) {
+            ContentType.TEXT  -> tagDao.removeTagFromTextItem(TextItemTagCrossRef(itemId, tagId))
+            ContentType.IMAGE -> tagDao.removeTagFromImageItem(ImageItemTagCrossRef(itemId, tagId))
+            ContentType.LINK  -> tagDao.removeTagFromLinkItem(LinkItemTagCrossRef(itemId, tagId))
+        }
+    }
+
+    fun getTagsForItem(itemId: Long, contentType: ContentType): Flow<List<TagEntity>> {
+        return when (contentType) {
+            ContentType.TEXT  -> tagDao.getTagsForTextItem(itemId)
+            ContentType.IMAGE -> tagDao.getTagsForImageItem(itemId)
+            ContentType.LINK  -> tagDao.getTagsForLinkItem(itemId)
+        }
+    }
+
+    fun getAllTags(): Flow<List<TagEntity>> = tagDao.getAllTags()
+
+    suspend fun searchTagSuggestions(query: String): List<TagEntity> = tagDao.searchTags(query)
+
+    fun getItemIdsByTag(tagId: Int, contentType: ContentType): Flow<List<Long>> {
+        return when (contentType) {
+            ContentType.TEXT  -> tagDao.getTextItemIdsByTag(tagId)
+            ContentType.IMAGE -> tagDao.getImageItemIdsByTag(tagId)
+            ContentType.LINK  -> tagDao.getLinkItemIdsByTag(tagId)
+        }
+    }
+
     // Migration from SharedPreferences
     suspend fun migrateFromSharedPreferences() {
         val prefs = context.getSharedPreferences("SecondBrainPrefs", Context.MODE_PRIVATE)

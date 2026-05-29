@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -64,6 +65,8 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,7 +78,9 @@ import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import com.example.secondbrain.data.ContentType
 import com.example.secondbrain.data.DatabaseManager
+import com.example.secondbrain.data.entities.TagEntity
 import com.example.secondbrain.data.entities.TextItemEntity
 import com.example.secondbrain.data.entities.ImageItemEntity
 import com.example.secondbrain.data.entities.LinkItemEntity
@@ -487,6 +492,54 @@ class MainActivity : ComponentActivity() {
         var showDeleteConfirmation by remember { mutableStateOf(false) }
         var selectedTextItemForEdit by remember { mutableStateOf<TextItem?>(null) }
         var selectedLinkItemForEdit by remember { mutableStateOf<LinkItem?>(null) }
+        var activeTagFilter by remember { mutableStateOf<TagEntity?>(null) }
+        var showAddTagSheet by remember { mutableStateOf(false) }
+        var tagSheetTargetItemId by remember { mutableStateOf<Long?>(null) }
+        var tagSheetTargetContentType by remember { mutableStateOf<ContentType?>(null) }
+        val allTags by databaseManager.getAllTags().collectAsState(initial = emptyList())
+
+        // Item IDs whose tag names match the current search query
+        var tagSearchTextIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+        var tagSearchImageIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+        var tagSearchLinkIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
+        LaunchedEffect(searchQuery, allTags) {
+            if (searchQuery.isBlank()) {
+                tagSearchTextIds = emptySet()
+                tagSearchImageIds = emptySet()
+                tagSearchLinkIds = emptySet()
+                return@LaunchedEffect
+            }
+            val matchingTags = allTags.filter { it.name.contains(searchQuery, ignoreCase = true) }
+            val tText = mutableSetOf<Long>()
+            val tImage = mutableSetOf<Long>()
+            val tLink = mutableSetOf<Long>()
+            matchingTags.forEach { tag ->
+                databaseManager.getItemIdsByTag(tag.id, ContentType.TEXT).first().forEach { tText += it }
+                databaseManager.getItemIdsByTag(tag.id, ContentType.IMAGE).first().forEach { tImage += it }
+                databaseManager.getItemIdsByTag(tag.id, ContentType.LINK).first().forEach { tLink += it }
+            }
+            tagSearchTextIds = tText
+            tagSearchImageIds = tImage
+            tagSearchLinkIds = tLink
+        }
+
+        // Filtered item ID sets for tag filter — empty sets mean "show all"
+        val tagFilteredTextIds by remember(activeTagFilter) {
+            activeTagFilter?.let { tag ->
+                databaseManager.getItemIdsByTag(tag.id, ContentType.TEXT)
+            } ?: flowOf(emptyList())
+        }.collectAsState(initial = emptyList())
+        val tagFilteredImageIds by remember(activeTagFilter) {
+            activeTagFilter?.let { tag ->
+                databaseManager.getItemIdsByTag(tag.id, ContentType.IMAGE)
+            } ?: flowOf(emptyList())
+        }.collectAsState(initial = emptyList())
+        val tagFilteredLinkIds by remember(activeTagFilter) {
+            activeTagFilter?.let { tag ->
+                databaseManager.getItemIdsByTag(tag.id, ContentType.LINK)
+            } ?: flowOf(emptyList())
+        }.collectAsState(initial = emptyList())
 
         fun deleteSelectedItem() {
             val item = selectedItemForAction ?: return
@@ -689,11 +742,20 @@ class MainActivity : ComponentActivity() {
                                 }
                                 Spacer(modifier = Modifier.height(16.dp))
                                 
+                                val searchTextItems = if (activeTagFilter == null) textItems
+                                    else textItems.filter { (it as? TextItem)?.id in tagFilteredTextIds }
+                                val searchImageItems = if (activeTagFilter == null) imageItems
+                                    else imageItems.filter { it.id in tagFilteredImageIds }
+                                val searchLinkItems = if (activeTagFilter == null) linkItems
+                                    else linkItems.filter { it.id in tagFilteredLinkIds }
                                 SearchResults(
                                     query = searchQuery,
-                                    textItems = textItems,
-                                    imageItems = imageItems,
-                                    linkItems = linkItems,
+                                    textItems = searchTextItems,
+                                    imageItems = searchImageItems,
+                                    linkItems = searchLinkItems,
+                                    tagMatchedTextIds = tagSearchTextIds,
+                                    tagMatchedImageIds = tagSearchImageIds,
+                                    tagMatchedLinkIds = tagSearchLinkIds,
                                     modifier = Modifier.weight(1f),
                                     onImageClick = { imageItem ->
                                         selectedImageItem = imageItem
@@ -825,8 +887,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+                        TagFilterBar(
+                            allTags = allTags,
+                            activeTag = activeTagFilter,
+                            onTagSelected = { tag -> activeTagFilter = if (activeTagFilter?.id == tag?.id) null else tag }
+                        )
+                        val filteredText = if (activeTagFilter == null) textItems
+                            else textItems.filter { (it as? TextItem)?.id in tagFilteredTextIds }
                         ContentList(
-                            items = textItems,
+                            items = filteredText,
                             category = "Text",
                             onLongPress = { item ->
                                 selectedItemForAction = item
@@ -858,8 +927,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+                        TagFilterBar(
+                            allTags = allTags,
+                            activeTag = activeTagFilter,
+                            onTagSelected = { tag -> activeTagFilter = if (activeTagFilter?.id == tag?.id) null else tag }
+                        )
+                        val filteredImage = if (activeTagFilter == null) imageItems
+                            else imageItems.filter { (it as? ImageItem)?.id in tagFilteredImageIds }
                         ContentList(
-                            items = imageItems,
+                            items = filteredImage,
                             category = "Image",
                             onImageClick = { imageItem ->
                                 selectedImageItem = imageItem
@@ -894,8 +970,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+                        TagFilterBar(
+                            allTags = allTags,
+                            activeTag = activeTagFilter,
+                            onTagSelected = { tag -> activeTagFilter = if (activeTagFilter?.id == tag?.id) null else tag }
+                        )
+                        val filteredLink = if (activeTagFilter == null) linkItems
+                            else linkItems.filter { (it as? LinkItem)?.id in tagFilteredLinkIds }
                         ContentList(
-                            items = linkItems,
+                            items = filteredLink,
                             category = "Link",
                             onLongPress = { item ->
                                 selectedItemForAction = item
@@ -980,7 +1063,37 @@ class MainActivity : ComponentActivity() {
                     showOptionsSheet = false
                     showDeleteConfirmation = true
                 },
+                onTags = {
+                    showOptionsSheet = false
+                    val item = selectedItemForAction
+                    tagSheetTargetItemId = when (item) {
+                        is TextItem  -> item.id
+                        is ImageItem -> item.id
+                        is LinkItem  -> item.id
+                        else -> null
+                    }
+                    tagSheetTargetContentType = when (item) {
+                        is TextItem  -> ContentType.TEXT
+                        is ImageItem -> ContentType.IMAGE
+                        is LinkItem  -> ContentType.LINK
+                        else -> null
+                    }
+                    if (tagSheetTargetItemId != null) showAddTagSheet = true
+                },
                 onDismiss = { showOptionsSheet = false }
+            )
+        }
+
+        if (showAddTagSheet && tagSheetTargetItemId != null && tagSheetTargetContentType != null) {
+            AddTagBottomSheet(
+                itemId = tagSheetTargetItemId!!,
+                contentType = tagSheetTargetContentType!!,
+                allTags = allTags,
+                onDismiss = {
+                    showAddTagSheet = false
+                    tagSheetTargetItemId = null
+                    tagSheetTargetContentType = null
+                }
             )
         }
 
@@ -1196,6 +1309,7 @@ class MainActivity : ComponentActivity() {
                                     
                                     // OCR text is hidden from UI but still searchable
                                     // The extractedText field remains in the ImageItem model for search functionality
+                                    TagChipRow(itemId = item.id, contentType = ContentType.IMAGE)
                                 }
                                 is TextItem -> {
                                     // Display text content with null safety
@@ -1205,6 +1319,7 @@ class MainActivity : ComponentActivity() {
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.fillMaxWidth()
                                     )
+                                    TagChipRow(itemId = item.id, contentType = ContentType.TEXT)
                                 }
                                 is LinkItem -> {
                                     // Display link with metadata
@@ -1260,6 +1375,7 @@ class MainActivity : ComponentActivity() {
                                                 contentScale = ContentScale.Crop
                                             )
                                         }
+                                        TagChipRow(itemId = item.id, contentType = ContentType.LINK)
                                     }
                                 }
                                 else -> {
@@ -1486,6 +1602,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Composable
+    private fun TagChipRow(itemId: Long, contentType: ContentType) {
+        val tags by databaseManager.getTagsForItem(itemId, contentType)
+            .collectAsState(initial = emptyList())
+        if (tags.isEmpty()) return
+        val displayed = tags.take(3)
+        val extra = tags.size - displayed.size
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            displayed.forEach { tag ->
+                SuggestionChip(
+                    onClick = {},
+                    label = { Text(tag.name, fontSize = 11.sp) }
+                )
+            }
+            if (extra > 0) {
+                SuggestionChip(
+                    onClick = {},
+                    label = { Text("+$extra more", fontSize = 11.sp) }
+                )
+            }
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun EditTextItemScreen(
@@ -1595,12 +1739,169 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Composable
+    private fun TagFilterBar(
+        allTags: List<TagEntity>,
+        activeTag: TagEntity?,
+        onTagSelected: (TagEntity?) -> Unit
+    ) {
+        if (allTags.isEmpty()) return
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = activeTag == null,
+                    onClick = { onTagSelected(null) },
+                    label = { Text("All") }
+                )
+            }
+            items(allTags) { tag ->
+                FilterChip(
+                    selected = activeTag?.id == tag.id,
+                    onClick = { onTagSelected(tag) },
+                    label = { Text(tag.name) }
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun AddTagBottomSheet(
+        itemId: Long,
+        contentType: ContentType,
+        allTags: List<TagEntity>,
+        onDismiss: () -> Unit
+    ) {
+        val existingTags by databaseManager.getTagsForItem(itemId, contentType)
+            .collectAsState(initial = emptyList())
+        var inputText by remember { mutableStateOf("") }
+        var validationError by remember { mutableStateOf<String?>(null) }
+
+        // Normalise: lowercase, spaces → hyphens
+        fun normalise(raw: String) = raw.lowercase().replace(' ', '-')
+
+        val normalisedInput = normalise(inputText)
+        val suggestions = allTags.filter { tag ->
+            normalisedInput.isNotEmpty() &&
+            tag.name.contains(normalisedInput, ignoreCase = true) &&
+            existingTags.none { it.id == tag.id }
+        }
+
+        fun tryAddTag(name: String) {
+            val cleaned = normalise(name).trim('-')
+            if (cleaned.isEmpty() || cleaned.all { it == '-' }) {
+                validationError = "Tag name cannot be blank or hyphens only"
+                return
+            }
+            // Silently ignore duplicate
+            if (existingTags.any { it.name == cleaned }) {
+                inputText = ""
+                validationError = null
+                return
+            }
+            lifecycleScope.launch(Dispatchers.IO) {
+                databaseManager.addTagToItem(cleaned, itemId, contentType)
+            }
+            inputText = ""
+            validationError = null
+        }
+
+        ModalBottomSheet(onDismissRequest = onDismiss) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 32.dp)
+            ) {
+                Text(
+                    text = "Add Tag",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .padding(bottom = 12.dp)
+                        .align(Alignment.CenterHorizontally)
+                )
+
+                // Existing tags with X to remove
+                if (existingTags.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        existingTags.forEach { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = {},
+                                label = { Text(tag.name) },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            lifecycleScope.launch(Dispatchers.IO) {
+                                                databaseManager.removeTagFromItem(tag.id, itemId, contentType)
+                                            }
+                                        },
+                                        modifier = Modifier.size(18.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove ${tag.name}",
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Tag input
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = {
+                        inputText = it
+                        validationError = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Enter tag name") },
+                    singleLine = true,
+                    isError = validationError != null,
+                    supportingText = validationError?.let { msg -> { Text(msg) } },
+                    trailingIcon = {
+                        TextButton(onClick = { tryAddTag(inputText) }) {
+                            Text("Add")
+                        }
+                    }
+                )
+
+                // Suggestions
+                if (suggestions.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    suggestions.forEach { tag ->
+                        TextButton(
+                            onClick = { tryAddTag(tag.name) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(tag.name, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun ItemOptionsBottomSheet(
         item: Any,
         onEdit: () -> Unit,
         onDelete: () -> Unit,
+        onTags: () -> Unit,
         onDismiss: () -> Unit
     ) {
         ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -1624,6 +1925,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Text("Edit", fontSize = 16.sp)
                     }
+                }
+                TextButton(
+                    onClick = onTags,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Tags", fontSize = 16.sp)
                 }
                 TextButton(
                     onClick = onDelete,
@@ -1669,23 +1976,27 @@ class MainActivity : ComponentActivity() {
         textItems: List<Any>,
         imageItems: List<ImageItem>,
         linkItems: List<LinkItem>,
+        tagMatchedTextIds: Set<Long> = emptySet(),
+        tagMatchedImageIds: Set<Long> = emptySet(),
+        tagMatchedLinkIds: Set<Long> = emptySet(),
         modifier: Modifier = Modifier,
         onImageClick: ((ImageItem) -> Unit)? = null
     ) {
-        
+
         val filteredTextItems = textItems.filter { item ->
             if (item is TextItem) {
-                !item.content.isNullOrEmpty() && item.content.contains(query, ignoreCase = true)
-            } else {
-                false
-            }
+                item.id in tagMatchedTextIds ||
+                (!item.content.isNullOrEmpty() && item.content.contains(query, ignoreCase = true))
+            } else false
         }
-        
+
         val filteredImageItems = imageItems.filter { item ->
-            !item.extractedText.isNullOrEmpty() && item.extractedText.contains(query, ignoreCase = true)
+            item.id in tagMatchedImageIds ||
+            (!item.extractedText.isNullOrEmpty() && item.extractedText.contains(query, ignoreCase = true))
         }
-        
+
         val filteredLinkItems = linkItems.filter { item ->
+            item.id in tagMatchedLinkIds ||
             (!item.title.isNullOrEmpty() && item.title.contains(query, ignoreCase = true)) ||
             (!item.description.isNullOrEmpty() && item.description.contains(query, ignoreCase = true)) ||
             (!item.url.isNullOrEmpty() && item.url.contains(query, ignoreCase = true))
