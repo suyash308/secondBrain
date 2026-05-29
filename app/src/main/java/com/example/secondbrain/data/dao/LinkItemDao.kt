@@ -14,7 +14,7 @@ interface LinkItemDao {
     fun searchLinkItems(query: String): Flow<List<LinkItemEntity>>
     
     @Insert
-    suspend fun insertLinkItem(linkItem: LinkItemEntity)
+    suspend fun insertLinkItem(linkItem: LinkItemEntity): Long
     
     @Update
     suspend fun updateLinkItem(linkItem: LinkItemEntity)
@@ -36,4 +36,13 @@ interface LinkItemDao {
 
     @Query("UPDATE link_items SET title = :title, description = :description, imageUrl = :imageUrl WHERE url = :url")
     suspend fun updateLinkMetadata(url: String, title: String?, description: String?, imageUrl: String?)
+
+    @Query("UPDATE link_items SET embedding = :embedding WHERE id = :id")
+    suspend fun updateEmbedding(id: Long, embedding: String)
+
+    @Query("SELECT id, embedding FROM link_items WHERE embedding IS NOT NULL")
+    suspend fun getAllEmbeddings(): List<ItemEmbeddingProjection>
+
+    @Query("SELECT id FROM link_items WHERE embedding IS NULL")
+    suspend fun getItemsWithoutEmbedding(): List<ItemWithoutEmbedding>
 } 

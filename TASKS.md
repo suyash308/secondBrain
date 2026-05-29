@@ -106,7 +106,7 @@ Wire up navigation via showSettingsScreen state variable.
 **Done when:** Gear icon visible in top bar. Tapping opens SettingsScreen. User
 can enter, save, and clear API key. Confirmation Snackbar shown on both actions.
 Back navigation works.
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -119,7 +119,7 @@ state shown when no messages. Message bubbles render correctly for both user and
 assistant roles. TypingIndicator composable exists. ChatInputBar renders with
 send button. NoApiKeyBanner renders. NewConversationDialog renders. Back
 navigation works. All UI driven by state variables, no API calls yet.
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -133,7 +133,7 @@ for all items with null embedding.
 call in the background. The embedding is stored in the database. Background job
 runs silently on first launch, generates embeddings for all items that have none,
 and sets the done flag in SharedPreferences so it does not run again.
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -144,7 +144,7 @@ response with source metadata, display in UI. Implement all error states.
 **Files:** `MainActivity.kt`
 **Done when:** All acceptance criteria for Feature 3 in REQUIREMENTS.md are met.
 Go through each criterion one by one and confirm before marking done.
-- [ ] Done
+- [x] Done
 
 ---
 

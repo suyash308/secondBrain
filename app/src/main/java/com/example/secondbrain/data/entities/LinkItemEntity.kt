@@ -11,5 +11,6 @@ data class LinkItemEntity(
     val title: String?,
     val description: String?,
     val imageUrl: String?,
-    val timestamp: Long
+    val timestamp: Long,
+    val embedding: String? = null
 ) 

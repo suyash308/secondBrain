@@ -8,5 +8,6 @@ data class TextItemEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val content: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val embedding: String? = null
 ) 

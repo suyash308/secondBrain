@@ -14,7 +14,7 @@ interface ImageItemDao {
     fun searchImageItems(query: String): Flow<List<ImageItemEntity>>
     
     @Insert
-    suspend fun insertImageItem(imageItem: ImageItemEntity)
+    suspend fun insertImageItem(imageItem: ImageItemEntity): Long
     
     @Update
     suspend fun updateImageItem(imageItem: ImageItemEntity)
@@ -36,4 +36,13 @@ interface ImageItemDao {
 
     @Query("UPDATE image_items SET extractedText = :extractedText WHERE originalUri = :uri OR localPath = :uri")
     suspend fun updateExtractedTextByUri(uri: String, extractedText: String)
+
+    @Query("UPDATE image_items SET embedding = :embedding WHERE id = :id")
+    suspend fun updateEmbedding(id: Long, embedding: String)
+
+    @Query("SELECT id, embedding FROM image_items WHERE embedding IS NOT NULL")
+    suspend fun getAllEmbeddings(): List<ItemEmbeddingProjection>
+
+    @Query("SELECT id FROM image_items WHERE embedding IS NULL")
+    suspend fun getItemsWithoutEmbedding(): List<ItemWithoutEmbedding>
 } 

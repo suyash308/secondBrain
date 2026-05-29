@@ -1,6 +1,9 @@
 package com.example.secondbrain
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -10,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -29,13 +33,21 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Email  // stand-in for Chat icon (core only; swap to Chat once material-icons-extended is added)
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
@@ -47,7 +59,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -80,6 +95,12 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import com.example.secondbrain.data.ContentType
 import com.example.secondbrain.data.DatabaseManager
+import com.example.secondbrain.data.EmbeddingUtils
+import com.example.secondbrain.data.OpenRouterService
+import com.example.secondbrain.data.RetrievedItem
+import com.example.secondbrain.data.SettingsManager
+import com.example.secondbrain.data.entities.ChatMessageEntity
+import com.example.secondbrain.data.entities.ConversationEntity
 import com.example.secondbrain.data.entities.TagEntity
 import com.example.secondbrain.data.entities.TextItemEntity
 import com.example.secondbrain.data.entities.ImageItemEntity
@@ -101,6 +122,8 @@ class MainActivity : ComponentActivity() {
     private val gson = Gson()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private lateinit var databaseManager: DatabaseManager
+    private lateinit var settingsManager: SettingsManager
+    private val openRouterService = OpenRouterService()
     
     // Gallery picker launcher
     private val galleryLauncher = registerForActivityResult(
@@ -167,9 +190,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
-        // Initialize database manager
+        // Initialize database manager and settings manager
         databaseManager = DatabaseManager(this)
-        
+        settingsManager = SettingsManager(this)
+
+        // Background embedding job for existing items (runs once after v3 install)
+        runBackgroundEmbeddingJobIfNeeded()
+
         // Handle shared content only if it's a share intent
         if (intent?.action == Intent.ACTION_SEND) {
             handleSharedContent(intent)
@@ -362,28 +389,186 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             when (item) {
                 is TextItem -> {
-                    databaseManager.insertTextItem(item)
-                    // Set trigger for UI update
+                    val insertedId = databaseManager.insertTextItem(item)
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putLong(TEXT_ADDED_TRIGGER_KEY, System.currentTimeMillis())
                         .apply()
+                    generateEmbeddingForItem(item, insertedId)
                 }
                 is ImageItem -> {
-                    databaseManager.insertImageItem(item)
-                    // Set trigger for UI update
+                    val insertedId = databaseManager.insertImageItem(item)
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putLong(IMAGE_ADDED_TRIGGER_KEY, System.currentTimeMillis())
                         .apply()
+                    generateEmbeddingForItem(item, insertedId)
                 }
                 is LinkItem -> {
-                    databaseManager.insertLinkItem(item)
-                    // Set trigger for UI update
+                    val insertedId = databaseManager.insertLinkItem(item)
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putLong(LINK_ADDED_TRIGGER_KEY, System.currentTimeMillis())
                         .apply()
+                    generateEmbeddingForItem(item, insertedId)
                 }
             }
         }
+    }
+
+    /** Extracts embeddable text for an item, or null if none is available. */
+    private fun extractTextForEmbedding(item: Any): String? = when (item) {
+        is TextItem  -> item.content?.take(2000)
+        is ImageItem -> item.extractedText?.take(2000)
+        is LinkItem  -> {
+            val combined = listOfNotNull(item.title, item.description)
+                .joinToString(" ")
+                .take(2000)
+            combined.ifBlank { null }
+        }
+        else -> null
+    }
+
+    /** Generates and stores an embedding for a newly-saved item. Silently skips on failure. */
+    private suspend fun generateEmbeddingForItem(item: Any, insertedId: Long) {
+        val apiKey = settingsManager.getApiKey() ?: return
+        val text = extractTextForEmbedding(item) ?: return
+        val result = openRouterService.generateEmbedding(text, apiKey)
+        result.onSuccess { embedding ->
+            val json = EmbeddingUtils.serializeEmbedding(embedding)
+            when (item) {
+                is TextItem  -> databaseManager.updateTextItemEmbedding(insertedId, json)
+                is ImageItem -> databaseManager.updateImageItemEmbedding(insertedId, json)
+                is LinkItem  -> databaseManager.updateLinkItemEmbedding(insertedId, json)
+            }
+        }
+        // On failure: silently skip; background job will retry
+    }
+
+    /** One-time background job: embed all items that have no embedding yet. */
+    private fun runBackgroundEmbeddingJobIfNeeded() {
+        val prefs = getSharedPreferences("second_brain_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("embedding_job_v3_done", false)) return
+        val apiKey = settingsManager.getApiKey() ?: return  // no key — skip; retry next launch
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val allItems: List<Pair<Long, ContentType>> = buildList {
+                databaseManager.getTextItemsWithoutEmbedding().forEach { add(it.id to ContentType.TEXT) }
+                databaseManager.getImageItemsWithoutEmbedding().forEach { add(it.id to ContentType.IMAGE) }
+                databaseManager.getLinkItemsWithoutEmbedding().forEach { add(it.id to ContentType.LINK) }
+            }
+
+            allItems.chunked(10).forEach { batch ->
+                batch.forEach { (id, type) ->
+                    try {
+                        // Load the full item to get its text
+                        val text: String? = when (type) {
+                            ContentType.TEXT  -> databaseManager.getAllTextItems()
+                                .first().find { it.id == id }?.content?.take(2000)
+                            ContentType.IMAGE -> databaseManager.getAllImageItems()
+                                .first().find { it.id == id }?.extractedText?.take(2000)
+                            ContentType.LINK  -> {
+                                val link = databaseManager.getAllLinkItems()
+                                    .first().find { it.id == id }
+                                listOfNotNull(link?.title, link?.description)
+                                    .joinToString(" ").take(2000).ifBlank { null }
+                            }
+                        }
+                        if (!text.isNullOrBlank()) {
+                            val result = openRouterService.generateEmbedding(text, apiKey)
+                            result.onSuccess { embedding ->
+                                val json = EmbeddingUtils.serializeEmbedding(embedding)
+                                when (type) {
+                                    ContentType.TEXT  -> databaseManager.updateTextItemEmbedding(id, json)
+                                    ContentType.IMAGE -> databaseManager.updateImageItemEmbedding(id, json)
+                                    ContentType.LINK  -> databaseManager.updateLinkItemEmbedding(id, json)
+                                }
+                            }
+                            // On failure: skip this item, continue
+                        }
+                    } catch (e: Exception) {
+                        // Skip this item and continue with the rest
+                    }
+                }
+            }
+
+            prefs.edit().putBoolean("embedding_job_v3_done", true).apply()
+        }
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private suspend fun retrieveRelevantItems(questionEmbedding: List<Float>): List<RetrievedItem> {
+        val similarityThreshold = 0.3f
+        val topK = 4
+        val results = mutableListOf<Pair<RetrievedItem, Float>>()
+        val gson = com.google.gson.Gson()
+
+        // Text items
+        databaseManager.getAllTextEmbeddings().forEach { proj ->
+            val score = EmbeddingUtils.cosineSimilarity(
+                questionEmbedding, EmbeddingUtils.parseEmbedding(proj.embedding)
+            )
+            if (score >= similarityThreshold) {
+                val fullItem = databaseManager.getAllTextItems().first().find { it.id == proj.id }
+                if (fullItem != null) {
+                    results += RetrievedItem(
+                        id = proj.id,
+                        contentType = ContentType.TEXT,
+                        label = "Text Note",
+                        contextText = "[Saved Item - Text Note]\n${fullItem.content ?: ""}",
+                        similarityScore = score
+                    ) to score
+                }
+            }
+        }
+
+        // Image items
+        databaseManager.getAllImageEmbeddings().forEach { proj ->
+            val score = EmbeddingUtils.cosineSimilarity(
+                questionEmbedding, EmbeddingUtils.parseEmbedding(proj.embedding)
+            )
+            if (score >= similarityThreshold) {
+                val fullItem = databaseManager.getAllImageItems().first().find { it.id == proj.id }
+                if (fullItem != null) {
+                    results += RetrievedItem(
+                        id = proj.id,
+                        contentType = ContentType.IMAGE,
+                        label = "Image Note",
+                        contextText = "[Saved Item - Image Note]\nExtracted text: ${fullItem.extractedText ?: ""}",
+                        similarityScore = score
+                    ) to score
+                }
+            }
+        }
+
+        // Link items
+        databaseManager.getAllLinkEmbeddings().forEach { proj ->
+            val score = EmbeddingUtils.cosineSimilarity(
+                questionEmbedding, EmbeddingUtils.parseEmbedding(proj.embedding)
+            )
+            if (score >= similarityThreshold) {
+                val fullItem = databaseManager.getAllLinkItems().first().find { it.id == proj.id }
+                if (fullItem != null) {
+                    results += RetrievedItem(
+                        id = proj.id,
+                        contentType = ContentType.LINK,
+                        label = fullItem.title ?: fullItem.url ?: "Link",
+                        contextText = buildString {
+                            append("[Saved Item - Link]\n")
+                            fullItem.title?.let { append("Title: $it\n") }
+                            fullItem.description?.let { append("Description: $it\n") }
+                            fullItem.url?.let { append("URL: $it") }
+                        },
+                        similarityScore = score
+                    ) to score
+                }
+            }
+        }
+
+        return results.sortedByDescending { it.second }.take(topK).map { it.first }
     }
 
     private fun processImageWithOCR(imageInput: Any) {
@@ -460,6 +645,22 @@ class MainActivity : ComponentActivity() {
                 println("DEBUG: Updating image with URI: $imageUri")
                 databaseManager.updateImageExtractedTextByUri(imageUri, extractedText)
                 println("DEBUG: Image metadata updated successfully in database")
+
+                // Now that OCR text is available, generate embedding for this image.
+                // (At save time the text was blank, so embedding was skipped then.)
+                val apiKey = settingsManager.getApiKey() ?: return@launch
+                if (extractedText.isBlank()) return@launch
+                val imageItem = databaseManager.getAllImageItems().first()
+                    .find { it.originalUri == imageUri || it.localPath == imageUri }
+                    ?: return@launch
+                val result = openRouterService.generateEmbedding(extractedText.take(2000), apiKey)
+                result.onSuccess { embedding ->
+                    databaseManager.updateImageItemEmbedding(
+                        imageItem.id,
+                        EmbeddingUtils.serializeEmbedding(embedding)
+                    )
+                    println("DEBUG: Image embedding stored after OCR for id=${imageItem.id}")
+                }
             } catch (e: Exception) {
                 println("DEBUG: Error updating image with extracted text: ${e.message}")
                 e.printStackTrace()
@@ -492,6 +693,15 @@ class MainActivity : ComponentActivity() {
         var showDeleteConfirmation by remember { mutableStateOf(false) }
         var selectedTextItemForEdit by remember { mutableStateOf<TextItem?>(null) }
         var selectedLinkItemForEdit by remember { mutableStateOf<LinkItem?>(null) }
+        var showSettingsScreen by remember { mutableStateOf(false) }
+        var showChatScreen by remember { mutableStateOf(false) }
+        var activeConversationId by remember { mutableStateOf<Int?>(null) }
+        var chatInput by remember { mutableStateOf("") }
+        var isChatLoading by remember { mutableStateOf(false) }
+        var chatError by remember { mutableStateOf<String?>(null) }
+        var lastUserMessage by remember { mutableStateOf<String?>(null) }
+        val chatSnackbarHostState = remember { SnackbarHostState() }
+        val categoryCounterScope = rememberCoroutineScope()
         var activeTagFilter by remember { mutableStateOf<TagEntity?>(null) }
         var showAddTagSheet by remember { mutableStateOf(false) }
         var tagSheetTargetItemId by remember { mutableStateOf<Long?>(null) }
@@ -636,6 +846,13 @@ class MainActivity : ComponentActivity() {
         // Handle system back button
         BackHandler {
             when {
+                showSettingsScreen -> { showSettingsScreen = false }
+                showChatScreen && activeConversationId != null -> {
+                    activeConversationId = null
+                    chatInput = ""
+                    isChatLoading = false
+                }
+                showChatScreen -> { showChatScreen = false }
                 currentScreen == "editText" -> {
                     currentScreen = "text"
                     selectedTextItemForEdit = null
@@ -667,13 +884,164 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
-            if (selectedImageItem != null) {
-                FullScreenImageViewer(
-                    imageItem = selectedImageItem!!,
-                    onClose = { selectedImageItem = null },
+            when {
+                showSettingsScreen -> {
+                    SettingsScreen(
+                        onBack = { showSettingsScreen = false },
                         modifier = Modifier.padding(innerPadding)
                     )
-            } else {
+                }
+                showChatScreen && activeConversationId == null -> {
+                    ConversationListScreen(
+                        onOpenConversation = { convId ->
+                            activeConversationId = convId
+                            chatInput = ""
+                        },
+                        onNewConversation = {
+                            categoryCounterScope.launch(Dispatchers.IO) {
+                                val id = databaseManager.createConversation("New Conversation")
+                                withContext(Dispatchers.Main) {
+                                    activeConversationId = id
+                                    chatInput = ""
+                                }
+                            }
+                        },
+                        onBack = { showChatScreen = false },
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                }
+                showChatScreen && activeConversationId != null -> {
+                    ChatScreen(
+                        conversationId = activeConversationId!!,
+                        hasApiKey = settingsManager.getApiKey() != null,
+                        chatInput = chatInput,
+                        isChatLoading = isChatLoading,
+                        snackbarHostState = chatSnackbarHostState,
+                        onInputChange = { chatInput = it },
+                        onSend = {
+                            val apiKey = settingsManager.getApiKey()
+                            if (apiKey == null) {
+                                // Banner already shown; do nothing
+                                return@ChatScreen
+                            }
+                            if (!isNetworkAvailable()) {
+                                categoryCounterScope.launch {
+                                    chatSnackbarHostState.showSnackbar(
+                                        "No internet connection. Chat requires an internet connection."
+                                    )
+                                }
+                                return@ChatScreen
+                            }
+                            val question = chatInput.take(500).trim()
+                            if (question.isBlank()) return@ChatScreen
+
+                            val convId = activeConversationId ?: return@ChatScreen
+                            val userMessage = ChatMessageEntity(
+                                role = "user",
+                                content = question,
+                                timestamp = System.currentTimeMillis(),
+                                conversationId = convId
+                            )
+                            lastUserMessage = question
+                            chatInput = ""
+                            isChatLoading = true
+
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                databaseManager.insertChatMessage(userMessage)
+                                // Auto-title: set conversation title to first message if still default
+                                val isFirstMessage = databaseManager
+                                    .getChatMessages(convId).first().size <= 1
+                                if (isFirstMessage) {
+                                    databaseManager.updateConversationTitle(
+                                        convId, question.take(50)
+                                    )
+                                }
+
+                                // a. Embed the question
+                                val embeddingResult = openRouterService.generateEmbedding(question, apiKey)
+                                if (embeddingResult.isFailure) {
+                                    withContext(Dispatchers.Main) {
+                                        isChatLoading = false
+                                        chatError = question
+                                        categoryCounterScope.launch {
+                                            val action = chatSnackbarHostState.showSnackbar(
+                                                message = "Failed to get a response. Tap to retry.",
+                                                actionLabel = "Retry"
+                                            )
+                                            if (action == SnackbarResult.ActionPerformed) {
+                                                chatError?.let { retry ->
+                                                    // Re-trigger send with last message
+                                                    chatInput = retry
+                                                }
+                                            }
+                                        }
+                                    }
+                                    return@launch
+                                }
+
+                                // b. Retrieve relevant items
+                                val questionEmbedding = embeddingResult.getOrThrow()
+                                val retrievedItems = retrieveRelevantItems(questionEmbedding)
+
+                                // c. Get conversation history
+                                val history = databaseManager.getRecentChatMessages(convId, limit = 20)
+
+                                // d. Call chat API
+                                val chatResult = openRouterService.chat(question, history, retrievedItems, apiKey)
+                                if (chatResult.isFailure) {
+                                    withContext(Dispatchers.Main) {
+                                        isChatLoading = false
+                                        chatError = question
+                                        categoryCounterScope.launch {
+                                            val action = chatSnackbarHostState.showSnackbar(
+                                                message = "Failed to get a response. Tap to retry.",
+                                                actionLabel = "Retry"
+                                            )
+                                            if (action == SnackbarResult.ActionPerformed) {
+                                                chatError?.let { retry -> chatInput = retry }
+                                            }
+                                        }
+                                    }
+                                    return@launch
+                                }
+
+                                // e. Save assistant message with source metadata
+                                val gson = com.google.gson.Gson()
+                                val assistantMessage = ChatMessageEntity(
+                                    role = "assistant",
+                                    content = chatResult.getOrThrow(),
+                                    timestamp = System.currentTimeMillis(),
+                                    sourceIds = if (retrievedItems.isEmpty()) null
+                                                else gson.toJson(retrievedItems.map { it.id }),
+                                    sourceTypes = if (retrievedItems.isEmpty()) null
+                                                  else gson.toJson(retrievedItems.map { it.contentType.name }),
+                                    conversationId = convId
+                                )
+                                databaseManager.insertChatMessage(assistantMessage)
+
+                                withContext(Dispatchers.Main) {
+                                    isChatLoading = false
+                                    chatError = null
+                                }
+                            }
+                        },
+                        onGoToSettings = { showSettingsScreen = true },
+                        onBack = {
+                            activeConversationId = null
+                            chatInput = ""
+                            isChatLoading = false
+                        },
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                }
+                selectedImageItem != null -> {
+                    FullScreenImageViewer(
+                        imageItem = selectedImageItem!!,
+                        onClose = { selectedImageItem = null },
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                }
+                else -> {
                 when (currentScreen) {
                 "main" -> {
                     Column(
@@ -683,14 +1051,29 @@ class MainActivity : ComponentActivity() {
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Header
-                        Text(
-                            text = "Second Brain",
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
+                        // Header row with action icons
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Second Brain",
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row {
+                                IconButton(onClick = { showChatScreen = true }) {
+                                    Icon(Icons.Default.Email, contentDescription = "Chat") // TODO: swap to Icons.Default.Chat after adding material-icons-extended
+                                }
+                                IconButton(onClick = { showSettingsScreen = true }) {
+                                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+                                }
+                            }
+                        }
 
                         // Search Bar at the top
                         OutlinedTextField(
@@ -1041,7 +1424,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
+        } // end else (non-settings, non-chat)
+        } // end Scaffold content
 
         if (showOptionsSheet && selectedItemForAction != null) {
             ItemOptionsBottomSheet(
@@ -1735,6 +2119,546 @@ class MainActivity : ComponentActivity() {
                         else          -> null
                     }
                 )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun ChatScreen(
+        conversationId: Int,
+        hasApiKey: Boolean,
+        chatInput: String,
+        isChatLoading: Boolean,
+        snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+        onInputChange: (String) -> Unit,
+        onSend: () -> Unit,
+        onGoToSettings: () -> Unit,
+        onBack: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val messages by databaseManager.getChatMessages(conversationId).collectAsState(initial = emptyList())
+        val listState = rememberLazyListState()
+        var showNewConversationDialog by remember { mutableStateOf(false) }
+
+        // Auto-scroll to bottom when new messages arrive
+        LaunchedEffect(messages.size) {
+            if (messages.isNotEmpty()) {
+                listState.animateScrollToItem(messages.size - 1)
+            }
+        }
+
+        BackHandler { onBack() }
+
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                TopAppBar(
+                    title = { Text("Chat") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showNewConversationDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "New conversation")
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                ChatInputBar(
+                    input = chatInput,
+                    isLoading = isChatLoading,
+                    enabled = hasApiKey,
+                    onInputChange = onInputChange,
+                    onSend = onSend
+                )
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                if (!hasApiKey) {
+                    NoApiKeyBanner(onGoToSettings = onGoToSettings)
+                }
+
+                if (messages.isEmpty() && !isChatLoading) {
+                    // Empty state
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text("💬", fontSize = 48.sp, modifier = Modifier.padding(bottom = 16.dp))
+                        Text(
+                            "Ask anything about your saved content",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Your notes, images, and links are your knowledge base",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)
+                    ) {
+                        items(messages) { message ->
+                            if (message.role == "user") {
+                                UserMessageBubble(message)
+                            } else {
+                                AssistantMessageBubble(message)
+                            }
+                        }
+                        if (isChatLoading) {
+                            item { TypingIndicator() }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showNewConversationDialog) {
+            NewConversationDialog(
+                onConfirm = {
+                    showNewConversationDialog = false
+                    onBack() // go back to conversation list
+                },
+                onDismiss = { showNewConversationDialog = false }
+            )
+        }
+    }
+
+    @Composable
+    private fun UserMessageBubble(message: ChatMessageEntity) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Column(horizontalAlignment = Alignment.End) {
+                Box(
+                    modifier = Modifier
+                        .background(
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(16.dp, 4.dp, 16.dp, 16.dp)
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .widthIn(max = 280.dp)
+                ) {
+                    Text(
+                        text = message.content,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 14.sp
+                    )
+                }
+                Text(
+                    text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(message.timestamp)),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(top = 2.dp, end = 4.dp)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun AssistantMessageBubble(message: ChatMessageEntity) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start
+        ) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp)
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .widthIn(max = 280.dp)
+                ) {
+                    Text(
+                        text = message.content,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                }
+                SourcesSection(sourceIds = message.sourceIds, sourceTypes = message.sourceTypes)
+                Text(
+                    text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(message.timestamp)),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(top = 2.dp, start = 4.dp)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SourcesSection(sourceIds: String?, sourceTypes: String?) {
+        if (sourceIds.isNullOrEmpty() || sourceTypes.isNullOrEmpty()) return
+        val gson = com.google.gson.Gson()
+        val ids = runCatching {
+            gson.fromJson(sourceIds, Array<Long>::class.java).toList()
+        }.getOrElse { emptyList() }
+        val types = runCatching {
+            gson.fromJson(sourceTypes, Array<String>::class.java).toList()
+        }.getOrElse { emptyList() }
+        if (ids.isEmpty()) return
+        Column(modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
+            Text(
+                "Sources used:",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            ids.zip(types).forEach { (id, type) ->
+                Text(
+                    "• ${type.lowercase().replaceFirstChar { it.uppercase() }} #$id",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun TypingIndicator() {
+        val transition = rememberInfiniteTransition(label = "typing")
+        val alpha by transition.animateFloat(
+            initialValue = 0.3f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+            label = "typingAlpha"
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    "● ● ●",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    fontSize = 14.sp,
+                    letterSpacing = 4.sp
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun ChatInputBar(
+        input: String,
+        isLoading: Boolean,
+        enabled: Boolean,
+        onInputChange: (String) -> Unit,
+        onSend: () -> Unit
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInputChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Ask a question…") },
+                enabled = enabled && !isLoading,
+                singleLine = false,
+                maxLines = 4,
+                shape = RoundedCornerShape(24.dp)
+            )
+            IconButton(
+                onClick = onSend,
+                enabled = enabled && !isLoading && input.isNotBlank(),
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(
+                        if (enabled && !isLoading && input.isNotBlank())
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        shape = CircleShape
+                    )
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = if (enabled && input.isNotBlank())
+                            MaterialTheme.colorScheme.onPrimary
+                        else
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun NoApiKeyBanner(onGoToSettings: () -> Unit) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.errorContainer)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "No API key set. Add your OpenRouter key in Settings to use chat.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onGoToSettings) {
+                Text("Go to Settings", fontSize = 13.sp)
+            }
+        }
+    }
+
+    @Composable
+    private fun NewConversationDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Start a new conversation?") },
+            text = { Text("This will clear the current chat history.") },
+            confirmButton = {
+                TextButton(onClick = onConfirm) { Text("Clear") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun ConversationListScreen(
+        onOpenConversation: (Int) -> Unit,
+        onNewConversation: () -> Unit,
+        onBack: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val conversations by databaseManager.getAllConversations().collectAsState(initial = emptyList())
+        var conversationToDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+
+        BackHandler { onBack() }
+
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text("Chats") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = onNewConversation) {
+                            Icon(Icons.Default.Add, contentDescription = "New conversation")
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            if (conversations.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("💬", fontSize = 48.sp, modifier = Modifier.padding(bottom = 16.dp))
+                    Text(
+                        "No conversations yet",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Tap + to start a new conversation",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+                ) {
+                    items(conversations, key = { it.id }) { conversation ->
+                        @OptIn(ExperimentalFoundationApi::class)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .combinedClickable(
+                                    onClick = { onOpenConversation(conversation.id) },
+                                    onLongClick = { conversationToDelete = conversation }
+                                ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("💬", fontSize = 24.sp, modifier = Modifier.padding(end = 12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = conversation.title,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+                                            .format(java.util.Date(conversation.createdAt)),
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        conversationToDelete?.let { conv ->
+            AlertDialog(
+                onDismissRequest = { conversationToDelete = null },
+                title = { Text("Delete conversation?") },
+                text = { Text("\"${conv.title}\" and all its messages will be deleted.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            databaseManager.deleteConversation(conv.id)
+                        }
+                        conversationToDelete = null
+                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { conversationToDelete = null }) { Text("Cancel") }
+                }
+            )
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun SettingsScreen(
+        onBack: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        var apiKeyInput by remember { mutableStateOf(settingsManager.getApiKey() ?: "") }
+        var showKey by remember { mutableStateOf(false) }
+        val snackbarHostState = remember { SnackbarHostState() }
+        val scope = rememberCoroutineScope()
+
+        BackHandler { onBack() }
+
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text("Settings") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "OpenRouter API Key",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                OutlinedTextField(
+                    value = apiKeyInput,
+                    onValueChange = { apiKeyInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("API Key") },
+                    visualTransformation = if (showKey) VisualTransformation.None
+                                           else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { showKey = !showKey }) {
+                            Text(if (showKey) "Hide" else "Show", fontSize = 12.sp)
+                        }
+                    },
+                    singleLine = true
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            settingsManager.saveApiKey(apiKeyInput.trim())
+                            scope.launch { snackbarHostState.showSnackbar("API key saved") }
+                        },
+                        enabled = apiKeyInput.isNotBlank()
+                    ) { Text("Save") }
+                    OutlinedButton(
+                        onClick = {
+                            settingsManager.clearApiKey()
+                            apiKeyInput = ""
+                            scope.launch { snackbarHostState.showSnackbar("API key cleared") }
+                        }
+                    ) { Text("Clear") }
+                }
             }
         }
     }

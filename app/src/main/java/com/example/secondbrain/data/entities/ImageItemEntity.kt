@@ -10,5 +10,6 @@ data class ImageItemEntity(
     val originalUri: String,
     val localPath: String,
     val extractedText: String?,
-    val timestamp: Long
+    val timestamp: Long,
+    val embedding: String? = null
 ) 

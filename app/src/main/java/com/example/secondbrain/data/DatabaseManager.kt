@@ -1,6 +1,10 @@
 package com.example.secondbrain.data
 
 import android.content.Context
+import com.example.secondbrain.data.dao.ItemEmbeddingProjection
+import com.example.secondbrain.data.dao.ItemWithoutEmbedding
+import com.example.secondbrain.data.entities.ChatMessageEntity
+import com.example.secondbrain.data.entities.ConversationEntity
 import com.example.secondbrain.data.entities.ImageItemTagCrossRef
 import com.example.secondbrain.data.entities.LinkItemTagCrossRef
 import com.example.secondbrain.data.entities.TagEntity
@@ -15,8 +19,10 @@ import com.example.secondbrain.data.repository.LinkItemRepository
 import com.example.secondbrain.MainActivity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 enum class ContentType { TEXT, IMAGE, LINK }
 
@@ -27,6 +33,8 @@ class DatabaseManager(private val context: Context) {
     private val imageItemDao = database.imageItemDao()
     private val linkItemDao = database.linkItemDao()
     private val tagDao = database.tagDao()
+    private val chatMessageDao = database.chatMessageDao()
+    private val conversationDao = database.conversationDao()
     private val gson = Gson()
     private val textItemRepository = TextItemRepository(textItemDao)
     private val imageItemRepository = ImageItemRepository(imageItemDao)
@@ -45,9 +53,9 @@ class DatabaseManager(private val context: Context) {
         }
     }
     
-    suspend fun insertTextItem(textItem: MainActivity.TextItem) {
+    suspend fun insertTextItem(textItem: MainActivity.TextItem): Long {
         val entity = DataMapper.toTextItemEntity(textItem)
-        textItemDao.insertTextItem(entity)
+        return textItemDao.insertTextItem(entity)
     }
     
     suspend fun deleteTextItem(item: TextItemEntity) {
@@ -76,9 +84,9 @@ class DatabaseManager(private val context: Context) {
         }
     }
     
-    suspend fun insertImageItem(imageItem: MainActivity.ImageItem) {
+    suspend fun insertImageItem(imageItem: MainActivity.ImageItem): Long {
         val entity = DataMapper.toImageItemEntity(imageItem)
-        imageItemDao.insertImageItem(entity)
+        return imageItemDao.insertImageItem(entity)
     }
     
     suspend fun updateImageExtractedText(imageItem: MainActivity.ImageItem) {
@@ -114,9 +122,9 @@ class DatabaseManager(private val context: Context) {
         }
     }
     
-    suspend fun insertLinkItem(linkItem: MainActivity.LinkItem) {
+    suspend fun insertLinkItem(linkItem: MainActivity.LinkItem): Long {
         val entity = DataMapper.toLinkItemEntity(linkItem)
-        linkItemDao.insertLinkItem(entity)
+        return linkItemDao.insertLinkItem(entity)
     }
     
     suspend fun deleteLinkItem(item: LinkItemEntity) {
@@ -176,6 +184,76 @@ class DatabaseManager(private val context: Context) {
             ContentType.TEXT  -> tagDao.getTextItemIdsByTag(tagId)
             ContentType.IMAGE -> tagDao.getImageItemIdsByTag(tagId)
             ContentType.LINK  -> tagDao.getLinkItemIdsByTag(tagId)
+        }
+    }
+
+    // Embeddings
+    suspend fun updateTextItemEmbedding(id: Long, embedding: String) {
+        withContext(Dispatchers.IO) { textItemDao.updateEmbedding(id, embedding) }
+    }
+
+    suspend fun updateImageItemEmbedding(id: Long, embedding: String) {
+        withContext(Dispatchers.IO) { imageItemDao.updateEmbedding(id, embedding) }
+    }
+
+    suspend fun updateLinkItemEmbedding(id: Long, embedding: String) {
+        withContext(Dispatchers.IO) { linkItemDao.updateEmbedding(id, embedding) }
+    }
+
+    suspend fun getAllTextEmbeddings(): List<ItemEmbeddingProjection> =
+        withContext(Dispatchers.IO) { textItemDao.getAllEmbeddings() }
+
+    suspend fun getAllImageEmbeddings(): List<ItemEmbeddingProjection> =
+        withContext(Dispatchers.IO) { imageItemDao.getAllEmbeddings() }
+
+    suspend fun getAllLinkEmbeddings(): List<ItemEmbeddingProjection> =
+        withContext(Dispatchers.IO) { linkItemDao.getAllEmbeddings() }
+
+    suspend fun getTextItemsWithoutEmbedding(): List<ItemWithoutEmbedding> =
+        withContext(Dispatchers.IO) { textItemDao.getItemsWithoutEmbedding() }
+
+    suspend fun getImageItemsWithoutEmbedding(): List<ItemWithoutEmbedding> =
+        withContext(Dispatchers.IO) { imageItemDao.getItemsWithoutEmbedding() }
+
+    suspend fun getLinkItemsWithoutEmbedding(): List<ItemWithoutEmbedding> =
+        withContext(Dispatchers.IO) { linkItemDao.getItemsWithoutEmbedding() }
+
+    // Chat messages (per-conversation)
+    suspend fun insertChatMessage(message: ChatMessageEntity) {
+        withContext(Dispatchers.IO) { chatMessageDao.insert(message) }
+    }
+
+    fun getChatMessages(conversationId: Int): Flow<List<ChatMessageEntity>> =
+        chatMessageDao.getMessages(conversationId)
+
+    suspend fun getRecentChatMessages(conversationId: Int, limit: Int): List<ChatMessageEntity> =
+        withContext(Dispatchers.IO) { chatMessageDao.getRecentMessages(conversationId, limit) }
+
+    // Legacy — kept for backward compat
+    fun getAllChatMessages(): Flow<List<ChatMessageEntity>> = chatMessageDao.getAllMessages()
+
+    suspend fun deleteAllChatMessages() {
+        withContext(Dispatchers.IO) { chatMessageDao.deleteAll() }
+    }
+
+    // Conversations
+    suspend fun createConversation(title: String): Int {
+        val id = withContext(Dispatchers.IO) {
+            conversationDao.insert(ConversationEntity(title = title, createdAt = System.currentTimeMillis()))
+        }
+        return id.toInt()
+    }
+
+    fun getAllConversations(): Flow<List<ConversationEntity>> = conversationDao.getAllConversations()
+
+    suspend fun updateConversationTitle(conversationId: Int, title: String) {
+        withContext(Dispatchers.IO) { conversationDao.updateTitle(conversationId, title) }
+    }
+
+    suspend fun deleteConversation(conversationId: Int) {
+        withContext(Dispatchers.IO) {
+            chatMessageDao.deleteByConversation(conversationId)
+            conversationDao.deleteById(conversationId)
         }
     }
 
