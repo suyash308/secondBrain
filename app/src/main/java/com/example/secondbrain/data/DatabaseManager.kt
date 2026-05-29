@@ -5,6 +5,9 @@ import com.example.secondbrain.data.entities.TextItemEntity
 import com.example.secondbrain.data.entities.ImageItemEntity
 import com.example.secondbrain.data.entities.LinkItemEntity
 import com.example.secondbrain.data.mapper.DataMapper
+import com.example.secondbrain.data.repository.TextItemRepository
+import com.example.secondbrain.data.repository.ImageItemRepository
+import com.example.secondbrain.data.repository.LinkItemRepository
 import com.example.secondbrain.MainActivity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -18,6 +21,9 @@ class DatabaseManager(private val context: Context) {
     private val imageItemDao = database.imageItemDao()
     private val linkItemDao = database.linkItemDao()
     private val gson = Gson()
+    private val textItemRepository = TextItemRepository(textItemDao)
+    private val imageItemRepository = ImageItemRepository(imageItemDao)
+    private val linkItemRepository = LinkItemRepository(linkItemDao)
     
     // Text Items
     fun getAllTextItems(): Flow<List<MainActivity.TextItem>> {
@@ -37,6 +43,14 @@ class DatabaseManager(private val context: Context) {
         textItemDao.insertTextItem(entity)
     }
     
+    suspend fun deleteTextItem(item: TextItemEntity) {
+        textItemRepository.delete(item)
+    }
+
+    suspend fun updateTextItem(item: TextItemEntity) {
+        textItemRepository.update(item)
+    }
+
     suspend fun getTextItemCount(): Int {
         return textItemDao.getTextItemCount()
     }
@@ -70,6 +84,10 @@ class DatabaseManager(private val context: Context) {
         imageItemDao.updateExtractedTextByUri(uri, extractedText)
     }
     
+    suspend fun deleteImageItem(item: ImageItemEntity) {
+        imageItemRepository.delete(item)
+    }
+
     suspend fun getImageItemCount(): Int {
         return imageItemDao.getImageItemCount()
     }
@@ -92,6 +110,14 @@ class DatabaseManager(private val context: Context) {
         linkItemDao.insertLinkItem(entity)
     }
     
+    suspend fun deleteLinkItem(item: LinkItemEntity) {
+        linkItemRepository.delete(item)
+    }
+
+    suspend fun updateLinkItem(item: LinkItemEntity) {
+        linkItemRepository.update(item)
+    }
+
     suspend fun getLinkItemCount(): Int {
         return linkItemDao.getLinkItemCount()
     }

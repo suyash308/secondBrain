@@ -18,9 +18,15 @@ interface LinkItemDao {
     
     @Update
     suspend fun updateLinkItem(linkItem: LinkItemEntity)
-    
+
+    @Update
+    suspend fun update(item: LinkItemEntity)
+
     @Delete
     suspend fun deleteLinkItem(linkItem: LinkItemEntity)
+
+    @Delete
+    suspend fun delete(item: LinkItemEntity)
     
     @Query("DELETE FROM link_items")
     suspend fun deleteAllLinkItems()

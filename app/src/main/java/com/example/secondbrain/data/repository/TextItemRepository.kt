@@ -28,6 +28,14 @@ class TextItemRepository(
         textItemDao.deleteTextItem(textItem)
     }
     
+    suspend fun delete(item: TextItemEntity) {
+        textItemDao.delete(item)
+    }
+
+    suspend fun update(item: TextItemEntity) {
+        textItemDao.update(item)
+    }
+
     suspend fun deleteAllTextItems() {
         textItemDao.deleteAllTextItems()
     }

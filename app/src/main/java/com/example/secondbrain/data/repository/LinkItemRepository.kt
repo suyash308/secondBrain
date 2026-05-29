@@ -28,6 +28,14 @@ class LinkItemRepository(
         linkItemDao.deleteLinkItem(linkItem)
     }
     
+    suspend fun delete(item: LinkItemEntity) {
+        linkItemDao.delete(item)
+    }
+
+    suspend fun update(item: LinkItemEntity) {
+        linkItemDao.update(item)
+    }
+
     suspend fun deleteAllLinkItems() {
         linkItemDao.deleteAllLinkItems()
     }

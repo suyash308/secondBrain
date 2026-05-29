@@ -18,9 +18,15 @@ interface TextItemDao {
     
     @Update
     suspend fun updateTextItem(textItem: TextItemEntity)
-    
+
+    @Update
+    suspend fun update(item: TextItemEntity)
+
     @Delete
     suspend fun deleteTextItem(textItem: TextItemEntity)
+
+    @Delete
+    suspend fun delete(item: TextItemEntity)
     
     @Query("DELETE FROM text_items")
     suspend fun deleteAllTextItems()

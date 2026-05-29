@@ -9,7 +9,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,6 +76,10 @@ import android.graphics.Bitmap
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import com.example.secondbrain.data.DatabaseManager
+import com.example.secondbrain.data.entities.TextItemEntity
+import com.example.secondbrain.data.entities.ImageItemEntity
+import com.example.secondbrain.data.entities.LinkItemEntity
+import com.example.secondbrain.data.mapper.DataMapper
 
 class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "SecondBrainPrefs"
@@ -103,6 +109,7 @@ class MainActivity : ComponentActivity() {
 
 
     data class ImageItem(
+        val id: Long = 0,
         val originalUri: String? = null,
         val localPath: String? = null,
         val extractedText: String? = null,
@@ -110,11 +117,13 @@ class MainActivity : ComponentActivity() {
     )
 
     data class TextItem(
+        val id: Long = 0,
         val content: String? = null,
         val timestamp: Long = System.currentTimeMillis()
     )
 
     data class LinkItem(
+        val id: Long = 0,
         val url: String? = null,
         val title: String? = null,
         val description: String? = null,
@@ -186,7 +195,7 @@ class MainActivity : ComponentActivity() {
                     if (!sharedText.isNullOrEmpty()) {
                         if (isUrl(sharedText)) {
                             // Add basic link item first for immediate UI update
-                            addToCategory(LINK_COUNT_KEY, LINK_ITEMS_KEY, LinkItem(sharedText))
+                            addToCategory(LINK_COUNT_KEY, LINK_ITEMS_KEY, LinkItem(url = sharedText))
                             
                             // Set trigger flag for immediate feedback
                             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
@@ -199,7 +208,7 @@ class MainActivity : ComponentActivity() {
                                 updateLinkItem(sharedText, linkItemWithMetadata)
                             }
                         } else {
-                            addToCategory(TEXT_COUNT_KEY, TEXT_ITEMS_KEY, TextItem(sharedText))
+                            addToCategory(TEXT_COUNT_KEY, TEXT_ITEMS_KEY, TextItem(content = sharedText))
                             
                             // Set trigger flag for immediate feedback
                             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
@@ -473,7 +482,24 @@ class MainActivity : ComponentActivity() {
         var ocrUpdateTrigger by remember { mutableStateOf(0L) }
         var forceRefresh by remember { mutableStateOf(0) }
         var selectedImageItem by remember { mutableStateOf<ImageItem?>(null) }
-        
+        var showOptionsSheet by remember { mutableStateOf(false) }
+        var selectedItemForAction by remember { mutableStateOf<Any?>(null) }
+        var showDeleteConfirmation by remember { mutableStateOf(false) }
+        var selectedTextItemForEdit by remember { mutableStateOf<TextItem?>(null) }
+        var selectedLinkItemForEdit by remember { mutableStateOf<LinkItem?>(null) }
+
+        fun deleteSelectedItem() {
+            val item = selectedItemForAction ?: return
+            lifecycleScope.launch(Dispatchers.IO) {
+                when (item) {
+                    is TextItem  -> databaseManager.deleteTextItem(DataMapper.toTextItemEntity(item))
+                    is ImageItem -> databaseManager.deleteImageItem(DataMapper.toImageItemEntity(item))
+                    is LinkItem  -> databaseManager.deleteLinkItem(DataMapper.toLinkItemEntity(item))
+                }
+            }
+            selectedItemForAction = null
+        }
+
         // Animation state for counter highlight
         var imageCountAnimationTrigger by remember { mutableStateOf(0) }
         var textCountAnimationTrigger by remember { mutableStateOf(0) }
@@ -557,18 +583,23 @@ class MainActivity : ComponentActivity() {
         // Handle system back button
         BackHandler {
             when {
+                currentScreen == "editText" -> {
+                    currentScreen = "text"
+                    selectedTextItemForEdit = null
+                }
+                currentScreen == "editLink" -> {
+                    currentScreen = "link"
+                    selectedLinkItemForEdit = null
+                }
                 isSearching -> {
-                    // If in search mode, go back to main screen
                     isSearching = false
                     searchQuery = ""
                 }
                 currentScreen != "main" -> {
-                    // If in a category screen, go back to main
                     currentScreen = "main"
                 }
                 else -> {
-                    // If on main screen, let the system handle back (close app)
-                    // This will be handled by the system
+                    // On main screen — let the system handle back (close app)
                 }
             }
         }
@@ -796,7 +827,11 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
                         ContentList(
                             items = textItems,
-                            category = "Text"
+                            category = "Text",
+                            onLongPress = { item ->
+                                selectedItemForAction = item
+                                showOptionsSheet = true
+                            }
                         )
                     }
                 }
@@ -828,6 +863,10 @@ class MainActivity : ComponentActivity() {
                             category = "Image",
                             onImageClick = { imageItem ->
                                 selectedImageItem = imageItem
+                            },
+                            onLongPress = { item ->
+                                selectedItemForAction = item
+                                showOptionsSheet = true
                             }
                         )
                     }
@@ -857,11 +896,105 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
                         ContentList(
                             items = linkItems,
-                            category = "Link"
+                            category = "Link",
+                            onLongPress = { item ->
+                                selectedItemForAction = item
+                                showOptionsSheet = true
+                            }
+                        )
+                    }
+                }
+                "editText" -> {
+                    if (selectedTextItemForEdit != null) {
+                        EditTextItemScreen(
+                            item = selectedTextItemForEdit!!,
+                            onCancel = {
+                                currentScreen = "text"
+                                selectedTextItemForEdit = null
+                            },
+                            onSave = { updatedContent ->
+                                val updated = DataMapper.toTextItemEntity(
+                                    selectedTextItemForEdit!!.copy(content = updatedContent)
+                                )
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    databaseManager.updateTextItem(updated)
+                                }
+                                currentScreen = "text"
+                                selectedTextItemForEdit = null
+                            },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
+                }
+                "editLink" -> {
+                    if (selectedLinkItemForEdit != null) {
+                        EditLinkItemScreen(
+                            item = selectedLinkItemForEdit!!,
+                            onCancel = {
+                                currentScreen = "link"
+                                selectedLinkItemForEdit = null
+                            },
+                            onSave = { updatedUrl ->
+                                val oldUrl = selectedLinkItemForEdit!!.url ?: ""
+                                val updatedEntity = DataMapper.toLinkItemEntity(
+                                    selectedLinkItemForEdit!!.copy(
+                                        url = updatedUrl,
+                                        title = null,
+                                        description = null,
+                                        imageUrl = null
+                                    )
+                                )
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    databaseManager.updateLinkItem(updatedEntity)
+                                    // Re-fetch metadata in background; ignore failures per spec
+                                    val withMetadata = fetchLinkMetadata(updatedUrl)
+                                    updateLinkItem(updatedUrl, withMetadata)
+                                }
+                                currentScreen = "link"
+                                selectedLinkItemForEdit = null
+                            },
+                            modifier = Modifier.padding(innerPadding)
                         )
                     }
                 }
             }
+        }
+
+        if (showOptionsSheet && selectedItemForAction != null) {
+            ItemOptionsBottomSheet(
+                item = selectedItemForAction!!,
+                onEdit = {
+                    showOptionsSheet = false
+                    when (val item = selectedItemForAction) {
+                        is TextItem -> {
+                            selectedTextItemForEdit = item
+                            currentScreen = "editText"
+                        }
+                        is LinkItem -> {
+                            selectedLinkItemForEdit = item
+                            currentScreen = "editLink"
+                        }
+                    }
+                },
+                onDelete = {
+                    showOptionsSheet = false
+                    showDeleteConfirmation = true
+                },
+                onDismiss = { showOptionsSheet = false }
+            )
+        }
+
+        if (showDeleteConfirmation) {
+            DeleteConfirmationDialog(
+                onConfirm = {
+                    deleteSelectedItem()
+                    showDeleteConfirmation = false
+                },
+                onDismiss = {
+                    showDeleteConfirmation = false
+                    selectedItemForAction = null
+                }
+            )
         }
     }
     }
@@ -951,12 +1084,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
     private fun ContentList(
         items: List<Any>,
         category: String,
         modifier: Modifier = Modifier,
-        onImageClick: ((ImageItem) -> Unit)? = null
+        onImageClick: ((ImageItem) -> Unit)? = null,
+        onLongPress: (Any) -> Unit = {}
     ) {
         println("DEBUG: ContentList called with ${items.size} items for category: $category")
         items.forEachIndexed { index, item ->
@@ -1004,14 +1139,18 @@ class MainActivity : ComponentActivity() {
             ) {
                 items(items) { item ->
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    if (item is ImageItem && onImageClick != null) {
+                                        println("DEBUG: Image card clicked, opening full-screen viewer")
+                                        onImageClick(item)
+                                    }
+                                },
+                                onLongClick = { onLongPress(item) }
+                            ),
                         shape = RoundedCornerShape(8.dp),
-                        onClick = {
-                            if (item is ImageItem && onImageClick != null) {
-                                println("DEBUG: Image card clicked, opening full-screen viewer")
-                                onImageClick(item)
-                            }
-                        }
                     ) {
                         Column(
                             modifier = Modifier
@@ -1072,12 +1211,12 @@ class MainActivity : ComponentActivity() {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) { 
-                                                item.url?.let { url -> openUrlInBrowser(url) }
-                                            },
+                                            .combinedClickable(
+                                                onClick = {
+                                                    item.url?.let { url -> openUrlInBrowser(url) }
+                                                },
+                                                onLongClick = { onLongPress(item) }
+                                            ),
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         // Title or URL
@@ -1347,7 +1486,184 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-@Composable
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun EditTextItemScreen(
+        item: TextItem,
+        onCancel: () -> Unit,
+        onSave: (String) -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        var content by remember { mutableStateOf(item.content ?: "") }
+        val isBlank = content.isBlank()
+
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text("Edit Text") },
+                    navigationIcon = {
+                        IconButton(onClick = onCancel) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
+                        }
+                    },
+                    actions = {
+                        TextButton(
+                            onClick = { if (!isBlank) onSave(content.trim()) },
+                            enabled = !isBlank
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    placeholder = { Text("Enter text content") },
+                    isError = isBlank,
+                    supportingText = if (isBlank) {
+                        { Text("Content cannot be empty") }
+                    } else null
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun EditLinkItemScreen(
+        item: LinkItem,
+        onCancel: () -> Unit,
+        onSave: (String) -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        var url by remember { mutableStateOf(item.url ?: "") }
+        val isInvalid = url.isBlank() || (!url.startsWith("http://") && !url.startsWith("https://"))
+
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text("Edit Link") },
+                    navigationIcon = {
+                        IconButton(onClick = onCancel) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
+                        }
+                    },
+                    actions = {
+                        TextButton(
+                            onClick = { if (!isInvalid) onSave(url.trim()) },
+                            enabled = !isInvalid
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("https://example.com") },
+                    singleLine = true,
+                    isError = isInvalid,
+                    supportingText = when {
+                        url.isBlank() -> { { Text("URL cannot be empty") } }
+                        isInvalid     -> { { Text("URL must start with http:// or https://") } }
+                        else          -> null
+                    }
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun ItemOptionsBottomSheet(
+        item: Any,
+        onEdit: () -> Unit,
+        onDelete: () -> Unit,
+        onDismiss: () -> Unit
+    ) {
+        ModalBottomSheet(onDismissRequest = onDismiss) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 32.dp)
+            ) {
+                Text(
+                    text = "Options",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .padding(bottom = 16.dp)
+                        .align(Alignment.CenterHorizontally)
+                )
+                if (item is TextItem || item is LinkItem) {
+                    TextButton(
+                        onClick = { onEdit(); onDismiss() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Edit", fontSize = 16.sp)
+                    }
+                }
+                TextButton(
+                    onClick = onDelete,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Delete", fontSize = 16.sp, color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel", fontSize = 16.sp)
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DeleteConfirmationDialog(
+        onConfirm: () -> Unit,
+        onDismiss: () -> Unit
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Delete this item?") },
+            text = { Text("This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = onConfirm) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    @Composable
     private fun SearchResults(
         query: String,
         textItems: List<Any>,

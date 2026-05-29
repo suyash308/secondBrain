@@ -3,6 +3,7 @@ package com.example.secondbrain.data.repository
 import com.example.secondbrain.data.dao.ImageItemDao
 import com.example.secondbrain.data.entities.ImageItemEntity
 import kotlinx.coroutines.flow.Flow
+import java.io.File
 
 class ImageItemRepository(
     private val imageItemDao: ImageItemDao
@@ -28,6 +29,17 @@ class ImageItemRepository(
         imageItemDao.deleteImageItem(imageItem)
     }
     
+    suspend fun delete(item: ImageItemEntity) {
+        val localPath = item.localPath
+        if (localPath.isNotEmpty()) {
+            val file = File(localPath.removePrefix("file://"))
+            if (file.exists()) {
+                file.delete()
+            }
+        }
+        imageItemDao.delete(item)
+    }
+
     suspend fun deleteAllImageItems() {
         imageItemDao.deleteAllImageItems()
     }

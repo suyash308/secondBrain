@@ -10,40 +10,45 @@ object DataMapper {
     // TextItem conversions
     fun toTextItemEntity(textItem: MainActivity.TextItem): TextItemEntity {
         return TextItemEntity(
+            id = textItem.id,
             content = textItem.content ?: "",
             timestamp = textItem.timestamp
         )
     }
-    
+
     fun toTextItem(textItemEntity: TextItemEntity): MainActivity.TextItem {
         return MainActivity.TextItem(
+            id = textItemEntity.id,
             content = textItemEntity.content,
             timestamp = textItemEntity.timestamp
         )
     }
-    
+
     // ImageItem conversions
     fun toImageItemEntity(imageItem: MainActivity.ImageItem): ImageItemEntity {
         return ImageItemEntity(
+            id = imageItem.id,
             originalUri = imageItem.originalUri ?: "",
             localPath = imageItem.localPath ?: "",
             extractedText = imageItem.extractedText,
             timestamp = imageItem.timestamp
         )
     }
-    
+
     fun toImageItem(imageItemEntity: ImageItemEntity): MainActivity.ImageItem {
         return MainActivity.ImageItem(
+            id = imageItemEntity.id,
             originalUri = imageItemEntity.originalUri,
             localPath = imageItemEntity.localPath,
             extractedText = imageItemEntity.extractedText,
             timestamp = imageItemEntity.timestamp
         )
     }
-    
+
     // LinkItem conversions
     fun toLinkItemEntity(linkItem: MainActivity.LinkItem): LinkItemEntity {
         return LinkItemEntity(
+            id = linkItem.id,
             url = linkItem.url ?: "",
             title = linkItem.title,
             description = linkItem.description,
@@ -51,9 +56,10 @@ object DataMapper {
             timestamp = linkItem.timestamp
         )
     }
-    
+
     fun toLinkItem(linkItemEntity: LinkItemEntity): MainActivity.LinkItem {
         return MainActivity.LinkItem(
+            id = linkItemEntity.id,
             url = linkItemEntity.url,
             title = linkItemEntity.title,
             description = linkItemEntity.description,

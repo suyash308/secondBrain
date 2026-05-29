@@ -21,6 +21,9 @@ interface ImageItemDao {
     
     @Delete
     suspend fun deleteImageItem(imageItem: ImageItemEntity)
+
+    @Delete
+    suspend fun delete(item: ImageItemEntity)
     
     @Query("DELETE FROM image_items")
     suspend fun deleteAllImageItems()
