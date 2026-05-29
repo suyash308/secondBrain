@@ -18,148 +18,99 @@ Mark tasks done by changing `[ ]` to `[x]`.
 
 ---
 
-## Feature 1: Delete and Edit
+## Feature 1: Delete and Edit -- COMPLETE
 
-### Task 1.1 -- DAO Delete and Update Methods
-**Scope:** Add delete and update methods to TextItemDao, ImageItemDao, LinkItemDao.
-**Files:** `TextItemDao.kt`, `ImageItemDao.kt`, `LinkItemDao.kt`
-**Done when:** All three DAOs have delete methods. TextItemDao and LinkItemDao also
-have update methods. App compiles.
+- [x] Task 1.1 -- DAO Delete and Update Methods
+- [x] Task 1.2 -- Repository Delete and Update Methods
+- [x] Task 1.3 -- DatabaseManager Delete and Update Methods
+- [x] Task 1.4 -- Delete Confirmation Dialog and Bottom Sheet
+- [x] Task 1.5 -- Edit Text Item Screen
+- [x] Task 1.6 -- Edit Link Item Screen
+
+---
+
+## Feature 2: Tags -- COMPLETE
+
+- [x] Task 2.1 -- Tag Entities and CrossRef Classes
+- [x] Task 2.2 -- TagDao
+- [x] Task 2.3 -- Database Migration for Tags
+- [x] Task 2.4 -- DatabaseManager Tag Methods
+- [x] Task 2.5 -- Tag Chips on Item Cards
+- [x] Task 2.6 -- Add Tag Bottom Sheet
+- [x] Task 2.7 -- Tag Filter Bar
+
+---
+
+## Feature 3: Claude API Summarization
+
+### Task 3.1 -- Entities, DAOs, and Migration
+**Scope:** Add summary column to all three entity classes. Add updateSummary DAO
+method to all three DAOs. Add MIGRATION_2_3 to AppDatabase and bump version to 3.
+**Files:** `TextItemEntity.kt`, `ImageItemEntity.kt`, `LinkItemEntity.kt`,
+`TextItemDao.kt`, `ImageItemDao.kt`, `LinkItemDao.kt`, `AppDatabase.kt`
+**Done when:** All three entities have a nullable summary field. All three DAOs have
+updateSummary. Database version is 3. App does not crash on a device with version 2.
 - [ ] Done
 
 ---
 
-### Task 1.2 -- Repository Delete and Update Methods
-**Scope:** Add delete and update suspend functions to all three repositories.
-ImageItemRepository.delete must also delete the local file at localPath.
-**Files:** `TextItemRepository.kt`, `ImageItemRepository.kt`, `LinkItemRepository.kt`
-**Done when:** All three repositories have delete methods. Text and Link repositories
-have update methods. File deletion logic is in ImageItemRepository.
+### Task 3.2 -- SettingsManager
+**Scope:** Create SettingsManager with saveApiKey, getApiKey, clearApiKey using
+EncryptedSharedPreferences. security-crypto dependency is already in build.gradle.
+**Files:** Create `data/SettingsManager.kt`
+**Done when:** File exists, compiles, and correctly stores and retrieves a test value
+using EncryptedSharedPreferences.
 - [ ] Done
 
 ---
 
-### Task 1.3 -- DatabaseManager Delete and Update Methods
-**Scope:** Expose delete and update methods in DatabaseManager for all content types.
+### Task 3.3 -- ClaudeApiService
+**Scope:** Create ClaudeApiService with summarize() using HttpURLConnection and Gson.
+No new network dependency.
+**Files:** Create `data/ClaudeApiService.kt`
+**Done when:** File exists, compiles, sends correct request body per TECHNICAL_DESIGN.md,
+parses content[0].text from response, returns Result.success or Result.failure.
+- [ ] Done
+
+---
+
+### Task 3.4 -- DatabaseManager Summary Methods
+**Scope:** Add updateTextItemSummary, updateImageItemSummary, updateLinkItemSummary
+to DatabaseManager.
 **Files:** `DatabaseManager.kt`
-**Done when:** DatabaseManager has deleteTextItem, updateTextItem, deleteImageItem,
-deleteLinkItem, updateLinkItem methods. App compiles.
+**Done when:** All three methods exist, run on IO dispatcher, and delegate to the
+correct DAO updateSummary method. App compiles.
 - [ ] Done
 
 ---
 
-### Task 1.4 -- Delete Confirmation Dialog and Bottom Sheet
-**Scope:** Add long press handler to item cards. Add ItemOptionsBottomSheet composable.
-Add DeleteConfirmationDialog composable. Wire up delete flow end to end.
+### Task 3.5 -- Settings Screen and Gear Icon
+**Scope:** Add SettingsScreen composable and gear icon to the top app bar.
 **Files:** `MainActivity.kt`
-**Done when:** Long pressing any item shows the bottom sheet. Tapping Delete shows
-the confirmation dialog. Confirming deletes the item. List updates immediately.
+**Done when:** Gear icon visible in top bar. Tapping opens SettingsScreen. User can
+enter, save, and clear API key. Confirmation Snackbar shown on save and clear.
+Back navigation works via back button and BackHandler.
 - [ ] Done
 
 ---
 
-### Task 1.5 -- Edit Text Item Screen
-**Scope:** Add EditTextItemScreen composable. Wire up from bottom sheet Edit button
-for TextItem only. Validation: block save on empty content.
+### Task 3.6 -- Summarize Button, Summary Card, and Full Flow
+**Scope:** Add SummarizeButton and SummaryCard composables. Wire up the complete
+summarization flow including all error states as specified in TECHNICAL_DESIGN.md.
 **Files:** `MainActivity.kt`
-**Done when:** Edit opens a full-screen text editor pre-filled with existing content.
-Save updates the database. Cancel makes no changes. Empty content shows error.
+**Done when:** All acceptance criteria for Feature 3 in REQUIREMENTS.md are met.
+Verify each criterion one by one before marking done.
 - [ ] Done
 
 ---
-
-### Task 1.6 -- Edit Link Item Screen
-**Scope:** Add EditLinkItemScreen composable. Wire up from bottom sheet Edit button
-for LinkItem only. Validation: block save on blank or invalid URL. Trigger metadata
-re-fetch after save.
-**Files:** `MainActivity.kt`
-**Done when:** Edit opens a full-screen URL editor. Save updates URL and triggers
-background metadata re-fetch. Cancel makes no changes. Invalid URL shows error.
-- [ ] Done
-
----
-
-## Feature 2: Tags
-
-### Task 2.1 -- Tag Entities and CrossRef Classes
-**Scope:** Create TagEntity, TextItemTagCrossRef, ImageItemTagCrossRef,
-LinkItemTagCrossRef entity classes.
-**Files:** Create `data/entities/TagEntity.kt`, `data/entities/TextItemTagCrossRef.kt`,
-`data/entities/ImageItemTagCrossRef.kt`, `data/entities/LinkItemTagCrossRef.kt`
-**Done when:** All four files exist with correct Room annotations. App compiles.
-- [ ] Done
-
----
-
-### Task 2.2 -- TagDao
-**Scope:** Create TagDao with all methods specified in TECHNICAL_DESIGN.md.
-**Files:** Create `data/dao/TagDao.kt`
-**Done when:** TagDao has insert, query, cross-ref insert/delete, tags-for-item,
-item-ids-by-tag, and delete-tags-for-item methods. App compiles.
-- [ ] Done
-
----
-
-### Task 2.3 -- Database Migration for Tags
-**Scope:** Add MIGRATION_1_2 to AppDatabase. Register TagEntity, CrossRef tables,
-and TagDao. Bump database version.
-**Files:** `AppDatabase.kt`
-**Done when:** Database version is 2. Migration creates all four new tables.
-App installs and launches without crashing on a device that had version 1 installed.
-- [ ] Done
-
----
-
-### Task 2.4 -- DatabaseManager Tag Methods
-**Scope:** Add tag operation methods to DatabaseManager. Add ContentType enum.
-Update delete methods to call deleteTagsForXxxItem before deleting the item.
-**Files:** `DatabaseManager.kt`
-**Done when:** All tag methods are exposed. Delete methods clean up cross-ref
-entries. App compiles.
-- [ ] Done
-
----
-
-### Task 2.5 -- Tag Chips on Item Cards
-**Scope:** Add TagChipRow composable. Display tags on each item card by collecting
-tags flow per item. Show maximum 3 chips with "+N more" if needed.
-**Files:** `MainActivity.kt`
-**Done when:** Tags assigned to items appear as chips on item cards. "+N more"
-shown when item has more than 3 tags.
-- [ ] Done
-
----
-
-### Task 2.6 -- Add Tag Bottom Sheet
-**Scope:** Add AddTagBottomSheet composable. Wire up from item options bottom sheet.
-Implement tag input with suggestions, add button, and remove existing tag option.
-Input auto-lowercased, spaces replaced with hyphens.
-**Files:** `MainActivity.kt`
-**Done when:** User can open the tag sheet, type a tag name, see suggestions, add
-a tag, and remove an existing tag from the item. Changes persist after restart.
-- [ ] Done
-
----
-
-### Task 2.7 -- Tag Filter Bar
-**Scope:** Add TagFilterBar composable above content list. Wire up activeTagFilter
-state. Filter displayed items by active tag combined with any active search query.
-**Files:** `MainActivity.kt`
-**Done when:** Tag filter bar appears when tags exist. Tapping a tag filters the
-list. "All" chip clears the filter. Search works on top of the active filter.
-- [ ] Done
-
----
-
-
-
 
 ## Progress Summary
 
 | Feature | Tasks | Done |
 |---|---|---|
-| Feature 1: Delete and Edit | 6 | 0 |
-| Feature 2: Tags | 7 | 0 |
-| **Total** | **20** | **0** |
+| Feature 1: Delete and Edit | 6 | 6 |
+| Feature 2: Tags | 7 | 7 |
+| Feature 3: Summarization | 6 | 0 |
+| **Total** | **19** | **13** |
 
 Update this table as tasks are completed.

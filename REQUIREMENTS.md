@@ -13,163 +13,119 @@ this file.
 - Searches across all content types in real time
 - OCR extracts text from images offline using Google ML Kit
 - Link metadata (title, description, preview image) fetched via Jsoup
-- No delete, no edit, no tagging, no AI features currently exist
+- Delete and Edit (Feature 1) is COMPLETE
+- Tags (Feature 2) is COMPLETE
+- Room database is currently at version 2
 
 ---
 
-## Feature 1: Delete and Edit
+## Feature 1: Delete and Edit -- COMPLETE
 
-### Goal
-Allow users to remove unwanted content and correct mistakes in saved items.
-
-### Scope (What Is Included)
-- User can delete any single item of any content type (text, image, link)
-- User can edit the text content of a TextItem
-- User can edit the URL of a LinkItem; after saving the new URL, metadata is
-  re-fetched automatically
-- Image items support delete only; the image itself cannot be edited
-
-### Scope (What Is NOT Included)
-- Bulk delete is not in this iteration
-- Editing image files or replacing images is not in this iteration
-- Undo after delete is not in this iteration
-
-### Trigger
-- Long press on any item card opens a bottom sheet with available actions
-
-### UI States
-
-**Bottom Sheet (appears on long press)**
-- Title: "Options"
-- Button: "Edit" (shown for TextItem and LinkItem only)
-- Button: "Delete" (shown for all content types)
-- Button: "Cancel"
-
-**Delete Confirmation Dialog**
-- Title: "Delete this item?"
-- Body: "This action cannot be undone."
-- Buttons: "Cancel" and "Delete"
-- On confirm: item is removed from database; list updates automatically via Flow
-
-**Edit Screen for TextItem**
-- Full-screen composable (not a dialog)
-- Multiline text field pre-filled with existing content
-- Top bar with "Cancel" and "Save" buttons
-- On Save: content updated in database; navigate back to list
-- On Cancel: no changes saved; navigate back to list
-
-**Edit Screen for LinkItem**
-- Full-screen composable
-- Single-line text field pre-filled with existing URL
-- Top bar with "Cancel" and "Save" buttons
-- On Save: URL updated in database; metadata re-fetch triggered in background;
-  navigate back to list immediately without waiting for metadata
-- On Cancel: no changes saved; navigate back to list
-
-### Edge Cases
-- Deleting an image item must also delete the local image file from internal storage
-- If local image file is missing at delete time, proceed with database deletion anyway
-- Empty text content on Save shows a validation error; do not save
-- Invalid URL format on Save shows a validation error; do not save
-- If metadata re-fetch fails for an edited link, keep the new URL and show empty
-  title and description
-
-### Acceptance Criteria
-- [ ] Long press on any item shows the bottom sheet
-- [ ] Delete confirmation dialog appears before deletion
-- [ ] Deleted item disappears from list immediately
-- [ ] Deleted image file is removed from internal storage
-- [ ] Edited text is reflected in the list immediately after save
-- [ ] Edited link URL triggers metadata re-fetch in background
-- [ ] Empty content or invalid URL shows a validation error and blocks save
-- [ ] Cancel on any edit screen makes no changes
+All acceptance criteria met. No further work required.
 
 ---
 
-## Feature 2: Tags
+## Feature 2: Tags -- COMPLETE
+
+All acceptance criteria met. No further work required.
+
+---
+
+## Feature 3: Claude API Summarization
 
 ### Goal
-Allow users to label saved items with custom tags and filter content by tag.
+Allow users to generate a short AI summary of any saved item using the Claude API,
+turning the app from a storage tool into a thinking tool.
 
 ### Scope (What Is Included)
-- User can add one or more tags to any item (text, image, link)
-- User can remove a tag from an item
-- Tags are free-form, lowercase strings with no spaces (hyphens allowed)
-- User can filter the content list by selecting a tag
-- Tags are included in search results (searching a tag name surfaces tagged items)
-- Existing tags appear as suggestions when adding a tag to an item
+- User can request a summary for any single item (text, image, link)
+- Summary is generated once and cached in the database
+- User can manually regenerate a summary
+- API key is entered once by the user in a Settings screen and stored securely
+- Summarization works for all three content types using available text
 
 ### Scope (What Is NOT Included)
-- No global tag management screen (no rename tag, no delete tag globally)
-- No tag color customization
-- No limit on number of tags per item (reasonable use assumed)
-- No tag import or export
+- Batch summarization of multiple items
+- Summarization of image content visually (only OCR-extracted text is used)
+- Automatic summarization without user action
+- Summarization history or versioning
+
+### Content Sent to API per Content Type
+- TextItem: full `content` field, truncated to 2000 characters if longer
+- LinkItem: `title` + `description` concatenated, truncated to 2000 characters
+- ImageItem: `extractedText` field only, truncated to 2000 characters
+  - If `extractedText` is null or empty, show message: "No text extracted from
+    this image. Summarization is not available." Do not call the API.
+
+### API Configuration
+- Model: `claude-haiku-4-5`
+- Max output tokens: 150
+- System prompt: "You are a concise summarizer. Respond with 2-3 sentences only."
+- User prompt: "Summarize the following:\n\n{content}"
+- API endpoint: `https://api.anthropic.com/v1/messages`
+- API key header: `x-api-key`
+- Anthropic version header: `anthropic-version: 2023-06-01`
 
 ### Data Model Changes
 
-**New Table: TagEntity**
+**Existing entities get one new nullable column each**
 ```
-id        INTEGER PRIMARY KEY AUTOINCREMENT
-name      TEXT NOT NULL UNIQUE
-```
-
-**New Junction Tables (one per content type)**
-```
-TextItemTagCrossRef:  textItemId INTEGER, tagId INTEGER, PRIMARY KEY (textItemId, tagId)
-ImageItemTagCrossRef: imageItemId INTEGER, tagId INTEGER, PRIMARY KEY (imageItemId, tagId)
-LinkItemTagCrossRef:  linkItemId INTEGER, tagId INTEGER, PRIMARY KEY (linkItemId, tagId)
+TextItemEntity:  summary TEXT (nullable, default null)
+ImageItemEntity: summary TEXT (nullable, default null)
+LinkItemEntity:  summary TEXT (nullable, default null)
 ```
 
-**Room Migration**
-- Version increment required
-- Add all four new tables in the migration
+**Room Migration: version 2 to version 3**
+- ALTER TABLE statements to add the summary column to each entity table
+
+### Settings Screen
+- Accessible via a gear icon in the top app bar of MainActivity
+- Single field: "Claude API Key" (masked input, show/hide toggle)
+- "Save" button stores key in EncryptedSharedPreferences
+- "Clear" button removes the stored key
+- No other settings in this screen for this iteration
 
 ### UI States
 
-**Tag Chips on Item Cards**
-- Tags displayed as small chips below the item content preview
-- If no tags, no chip row is shown
-- Maximum 3 tags shown inline; if more, show "+N more" chip
+**Summarize Button**
+- Shown on the detail view of each item (not on the list card)
+- Label: "Summarize" if no summary exists
+- Label: "Regenerate Summary" if summary already exists
 
-**Add Tag Bottom Sheet (triggered from item options or a dedicated tag icon)**
-- Title: "Add Tag"
-- Text input field: placeholder "Enter tag name"
-- Input is auto-lowercased and spaces replaced with hyphens on submission
-- Suggestion list below input showing all existing tags filtered by input text
-- Tap a suggestion to add it instantly
-- "Add" button to add the typed tag
-- Existing tags on the item shown at top with an X to remove them
+**Loading State**
+- Button replaced with a circular progress indicator while API call is in progress
+- User cannot trigger another summarization while one is in progress
 
-**Tag Filter Bar**
-- Horizontal scrollable row of tag chips shown above the content list
-- Only shown when at least one tag exists in the database
-- Tap a tag chip to activate filter; chip style changes to filled/highlighted
-- Tap the active tag chip again to deactivate filter
-- Only one tag filter active at a time
-- "All" chip at the start; always visible; active by default
+**Summary Display**
+- Shown in a distinct card below the main content
+- Header: "AI Summary"
+- Body: summary text
+- Footer: small "Regenerate" text button
 
-**Filtered List Behavior**
-- When a tag filter is active, show only items that have that tag
-- All content types are shown (text, image, link) if they have the tag
-- Search bar works on top of the active tag filter (AND logic: tag filter AND search query)
+**Error State**
+- If API call fails, show a Snackbar: "Summarization failed. Tap to retry."
+- Tapping the Snackbar triggers a retry
+
+**No API Key State**
+- If no API key is stored, tapping "Summarize" shows a dialog:
+  "API key not set. Go to Settings to add your Claude API key."
+- Dialog has two buttons: "Go to Settings" and "Cancel"
 
 ### Edge Cases
-- Tag name with only spaces or hyphens is rejected with a validation error
-- Adding a duplicate tag to the same item is silently ignored
-- Removing the last tag from an item shows no chip row (not an empty row)
-- Deleting an item must also delete its junction table entries
-- A tag that is no longer assigned to any item remains in the TagEntity table
-  (orphan cleanup is not required in this iteration)
+- If device is offline when summarize is tapped, show Snackbar: "No internet
+  connection. Summarization requires an internet connection."
+- If the API returns an error status code, log the error and show the error Snackbar
+- Regenerating a summary overwrites the previous summary in the database
+- If the user clears the API key, existing summaries in the database are not deleted
 
 ### Acceptance Criteria
-- [ ] Tags persist after app restart
-- [ ] Tag chips appear on item cards
-- [ ] Add tag bottom sheet shows existing tag suggestions
-- [ ] Duplicate tag on same item is ignored silently
-- [ ] Tag filter bar appears when tags exist
-- [ ] Filtering by tag shows correct items across all content types
-- [ ] Search works together with active tag filter
-- [ ] Removing a tag from an item works correctly
-- [ ] Deleting an item removes its junction table entries
-
----
+- [ ] Settings screen accessible from main screen via gear icon
+- [ ] API key saved and retrieved securely via EncryptedSharedPreferences
+- [ ] Summarize button appears on item detail view
+- [ ] Loading indicator shown during API call
+- [ ] Summary displayed and persisted after generation
+- [ ] Regenerate overwrites previous summary
+- [ ] Error Snackbar shown on API failure with retry option
+- [ ] No API key dialog shown when key is not set, with Go to Settings button
+- [ ] Offline Snackbar shown when network is unavailable
+- [ ] ImageItem with no extracted text shows unavailable message, no API call made

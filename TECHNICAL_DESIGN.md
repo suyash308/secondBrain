@@ -6,22 +6,29 @@ Claude Code must follow this design. Do not invent alternative approaches.
 
 ---
 
-## Existing Architecture Reference
+## Current Architecture State
+
+Features 1 and 2 are complete. The codebase now looks like this:
 
 ```
 app/src/main/java/com/example/secondbrain/
 ├── MainActivity.kt                 # Single activity, all UI
 ├── data/
-│   ├── AppDatabase.kt             # Room database, current version: 1
+│   ├── AppDatabase.kt             # Room database, current version: 2
 │   ├── DatabaseManager.kt         # Single access point for all DB operations
 │   ├── entities/
 │   │   ├── TextItemEntity.kt
 │   │   ├── ImageItemEntity.kt
-│   │   └── LinkItemEntity.kt
+│   │   ├── LinkItemEntity.kt
+│   │   ├── TagEntity.kt           # Added in Feature 2
+│   │   ├── TextItemTagCrossRef.kt # Added in Feature 2
+│   │   ├── ImageItemTagCrossRef.kt# Added in Feature 2
+│   │   └── LinkItemTagCrossRef.kt # Added in Feature 2
 │   ├── dao/
 │   │   ├── TextItemDao.kt
 │   │   ├── ImageItemDao.kt
-│   │   └── LinkItemDao.kt
+│   │   ├── LinkItemDao.kt
+│   │   └── TagDao.kt              # Added in Feature 2
 │   ├── repository/
 │   │   ├── TextItemRepository.kt
 │   │   ├── ImageItemRepository.kt
@@ -36,249 +43,251 @@ app/src/main/java/com/example/secondbrain/
 
 ---
 
-## Feature 1: Delete and Edit
+## Feature 1: Delete and Edit -- COMPLETE
 
-### Files to Modify
-- `TextItemDao.kt` -- add delete and update methods
-- `ImageItemDao.kt` -- add delete method
-- `LinkItemDao.kt` -- add delete and update methods
-- `TextItemRepository.kt` -- add delete and update methods
-- `ImageItemRepository.kt` -- add delete method
-- `LinkItemRepository.kt` -- add delete and update methods
-- `DatabaseManager.kt` -- expose delete and update methods for all types
-- `MainActivity.kt` -- add long press handler, bottom sheet, edit screens
-
-### Files to Create
-- None. All changes are in existing files.
-
-### No Database Migration Required
-- No schema changes for this feature.
-- Delete uses existing Room `@Delete` annotation.
-- Update uses existing Room `@Update` annotation.
-
-### DAO Changes
-
-**TextItemDao.kt**
-```kotlin
-@Delete
-suspend fun delete(item: TextItemEntity)
-
-@Update
-suspend fun update(item: TextItemEntity)
-```
-
-**ImageItemDao.kt**
-```kotlin
-@Delete
-suspend fun delete(item: ImageItemEntity)
-```
-
-**LinkItemDao.kt**
-```kotlin
-@Delete
-suspend fun delete(item: LinkItemEntity)
-
-@Update
-suspend fun update(item: LinkItemEntity)
-```
-
-### Repository Changes
-
-Each repository adds corresponding suspend functions that call the DAO methods.
-`ImageItemRepository.deleteItem()` must also delete the local file at `localPath`
-using `File(localPath).delete()` before calling the DAO delete. If the file does
-not exist, proceed with DAO delete anyway.
-
-### DatabaseManager Changes
-
-Add public suspend functions:
-```kotlin
-suspend fun deleteTextItem(item: TextItemEntity)
-suspend fun updateTextItem(item: TextItemEntity)
-suspend fun deleteImageItem(item: ImageItemEntity)
-suspend fun deleteLinkItem(item: LinkItemEntity)
-suspend fun updateLinkItem(item: LinkItemEntity)
-```
-
-### UI Changes in MainActivity.kt
-
-**State Variables to Add**
-```kotlin
-var showOptionsSheet by remember { mutableStateOf(false) }
-var selectedTextItem by remember { mutableStateOf<TextItem?>(null) }
-var selectedImageItem by remember { mutableStateOf<ImageItem?>(null) }
-var selectedLinkItem by remember { mutableStateOf<LinkItem?>(null) }
-var showDeleteConfirmation by remember { mutableStateOf(false) }
-var showEditTextScreen by remember { mutableStateOf(false) }
-var showEditLinkScreen by remember { mutableStateOf(false) }
-```
-
-**New Composables to Add Inside MainActivity.kt**
-- `ItemOptionsBottomSheet()` -- shows Edit/Delete/Cancel options
-- `DeleteConfirmationDialog()` -- confirms deletion
-- `EditTextItemScreen()` -- full-screen text editor
-- `EditLinkItemScreen()` -- full-screen link URL editor
-
-**Long Press Handler**
-Add `combinedClickable(onLongClick = { ... })` modifier to each item card composable.
-On long press, set the appropriate selected item state variable and set
-`showOptionsSheet = true`.
-
-**Validation Logic**
-- EditTextItemScreen: disable Save button and show error text if input is blank
-- EditLinkItemScreen: disable Save button and show error text if input is blank
-  or does not start with `http://` or `https://`
-
-**Link Metadata Re-fetch After Edit**
-After saving an updated URL in EditLinkItemScreen, launch a coroutine on IO
-dispatcher to fetch new metadata using the existing Jsoup-based fetch logic already
-present in the codebase. Update the link item in the database after fetch completes.
+No further changes required.
 
 ---
 
-## Feature 2: Tags
+## Feature 2: Tags -- COMPLETE
+
+No further changes required.
+
+---
+
+## Feature 3: Claude API Summarization
 
 ### Files to Modify
-- `AppDatabase.kt` -- add new entities, DAOs, and migration
-- `DatabaseManager.kt` -- add tag operation methods
-- `MainActivity.kt` -- add tag chips, tag filter bar, add-tag bottom sheet
+- `TextItemEntity.kt` -- add summary column
+- `ImageItemEntity.kt` -- add summary column
+- `LinkItemEntity.kt` -- add summary column
+- `TextItemDao.kt` -- add updateSummary method
+- `ImageItemDao.kt` -- add updateSummary method
+- `LinkItemDao.kt` -- add updateSummary method
+- `DatabaseManager.kt` -- add updateXxxItemSummary methods
+- `AppDatabase.kt` -- add MIGRATION_2_3, bump version to 3
+- `MainActivity.kt` -- add Settings screen, Summarize button, summary display
 
 ### Files to Create
-- `data/entities/TagEntity.kt`
-- `data/entities/TextItemTagCrossRef.kt`
-- `data/entities/ImageItemTagCrossRef.kt`
-- `data/entities/LinkItemTagCrossRef.kt`
-- `data/dao/TagDao.kt`
+- `data/ClaudeApiService.kt` -- handles HTTP call to Claude API
+- `data/SettingsManager.kt` -- handles EncryptedSharedPreferences for API key
 
-### Database Migration
+---
 
-**Migration from version 1 to version 2** (or current version + 1)
+### Step 1: Entity Changes
+
+Add to each of the three entity classes:
+```kotlin
+val summary: String? = null
+```
+
+No other changes to entity classes.
+
+---
+
+### Step 2: DAO Changes
+
+Add to TextItemDao, ImageItemDao, and LinkItemDao:
+```kotlin
+@Query("UPDATE <TableName> SET summary = :summary WHERE id = :id")
+suspend fun updateSummary(id: Int, summary: String)
+```
+
+Use the correct table name for each DAO:
+- TextItemEntity table name: `TextItemEntity`
+- ImageItemEntity table name: `ImageItemEntity`
+- LinkItemEntity table name: `LinkItemEntity`
+
+---
+
+### Step 3: Database Migration
+
+**Migration from version 2 to version 3**
 
 ```kotlin
-val MIGRATION_1_2 = object : Migration(1, 2) {
+val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(database: SupportSQLiteDatabase) {
-        database.execSQL(
-            "CREATE TABLE IF NOT EXISTS TagEntity (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL UNIQUE)"
-        )
-        database.execSQL(
-            "CREATE TABLE IF NOT EXISTS TextItemTagCrossRef (textItemId INTEGER NOT NULL, tagId INTEGER NOT NULL, PRIMARY KEY (textItemId, tagId))"
-        )
-        database.execSQL(
-            "CREATE TABLE IF NOT EXISTS ImageItemTagCrossRef (imageItemId INTEGER NOT NULL, tagId INTEGER NOT NULL, PRIMARY KEY (imageItemId, tagId))"
-        )
-        database.execSQL(
-            "CREATE TABLE IF NOT EXISTS LinkItemTagCrossRef (linkItemId INTEGER NOT NULL, tagId INTEGER NOT NULL, PRIMARY KEY (linkItemId, tagId))"
-        )
+        database.execSQL("ALTER TABLE TextItemEntity ADD COLUMN summary TEXT")
+        database.execSQL("ALTER TABLE ImageItemEntity ADD COLUMN summary TEXT")
+        database.execSQL("ALTER TABLE LinkItemEntity ADD COLUMN summary TEXT")
     }
 }
 ```
 
-Register in `AppDatabase.kt`:
+Register in AppDatabase.kt:
 ```kotlin
-.addMigrations(MIGRATION_1_2)
+.addMigrations(MIGRATION_1_2, MIGRATION_2_3)
 ```
 
-### New Entity Classes
-
-**TagEntity.kt**
-```kotlin
-@Entity
-data class TagEntity(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val name: String
-)
-```
-
-**CrossRef entities** follow the same pattern with composite primary keys using
-`@Entity(primaryKeys = [...])`.
-
-### TagDao.kt Methods
-```kotlin
-@Insert(onConflict = OnConflictStrategy.IGNORE)
-suspend fun insertTag(tag: TagEntity): Long
-
-@Query("SELECT * FROM TagEntity ORDER BY name ASC")
-fun getAllTags(): Flow<List<TagEntity>>
-
-@Query("SELECT * FROM TagEntity WHERE name LIKE :query ORDER BY name ASC")
-suspend fun searchTags(query: String): List<TagEntity>
-
-// Insert cross-ref methods for each content type
-@Insert(onConflict = OnConflictStrategy.IGNORE)
-suspend fun addTagToTextItem(crossRef: TextItemTagCrossRef)
-
-@Delete
-suspend fun removeTagFromTextItem(crossRef: TextItemTagCrossRef)
-
-// Repeat for Image and Link cross-refs
-
-// Query tags for a specific item
-@Query("SELECT t.* FROM TagEntity t INNER JOIN TextItemTagCrossRef x ON t.id = x.tagId WHERE x.textItemId = :itemId")
-fun getTagsForTextItem(itemId: Int): Flow<List<TagEntity>>
-
-// Repeat for Image and Link
-
-// Query items by tag
-@Query("SELECT textItemId FROM TextItemTagCrossRef WHERE tagId = :tagId")
-fun getTextItemIdsByTag(tagId: Int): Flow<List<Int>>
-
-// Repeat for Image and Link
-
-// Delete all cross-refs when an item is deleted
-@Query("DELETE FROM TextItemTagCrossRef WHERE textItemId = :itemId")
-suspend fun deleteTagsForTextItem(itemId: Int)
-
-// Repeat for Image and Link
-```
-
-### DatabaseManager Changes
-
-Add methods:
-```kotlin
-suspend fun addTagToItem(tagName: String, itemId: Int, contentType: ContentType)
-suspend fun removeTagFromItem(tagId: Int, itemId: Int, contentType: ContentType)
-fun getTagsForItem(itemId: Int, contentType: ContentType): Flow<List<TagEntity>>
-fun getAllTags(): Flow<List<TagEntity>>
-suspend fun searchTagSuggestions(query: String): List<TagEntity>
-fun getItemIdsByTag(tagId: Int, contentType: ContentType): Flow<List<Int>>
-```
-
-Use a `ContentType` enum with values `TEXT`, `IMAGE`, `LINK`.
-
-### Repository Changes
-
-Delete methods in each repository must call the corresponding
-`deleteTagsForXxxItem(itemId)` before deleting the item itself to maintain
-referential integrity.
-
-### UI Changes in MainActivity.kt
-
-**State Variables to Add**
-```kotlin
-var activeTagFilter by remember { mutableStateOf<TagEntity?>(null) }
-var showAddTagSheet by remember { mutableStateOf(false) }
-var tagSheetTargetItem by remember { mutableStateOf<Pair<Int, ContentType>?>(null) }
-var tagSearchQuery by remember { mutableStateOf("") }
-```
-
-**New Composables to Add**
-- `TagFilterBar(tags, activeTag, onTagSelected)` -- horizontal scrollable chip row
-- `AddTagBottomSheet(itemId, contentType, existingTags, onDismiss)` -- tag input
-  with suggestions
-- `TagChipRow(tags, onTagRemove)` -- chips displayed on item cards
-
-**Tag Chip Row on Item Cards**
-- Collect tags for each item using `getTagsForItem()` as a Flow
-- Display maximum 3 chips; show "+N more" if more exist
-- No remove button on card chips; remove is only available in AddTagBottomSheet
-
-**Tag Filter Logic**
-- When `activeTagFilter` is not null, collect item IDs for that tag and filter
-  the displayed lists to only those IDs before applying any search query
+Bump database version from 2 to 3.
 
 ---
 
+### Step 4: DatabaseManager Changes
 
+Add three suspend functions:
+```kotlin
+suspend fun updateTextItemSummary(id: Int, summary: String) {
+    withContext(Dispatchers.IO) {
+        textItemDao.updateSummary(id, summary)
+    }
+}
+
+suspend fun updateImageItemSummary(id: Int, summary: String) {
+    withContext(Dispatchers.IO) {
+        imageItemDao.updateSummary(id, summary)
+    }
+}
+
+suspend fun updateLinkItemSummary(id: Int, summary: String) {
+    withContext(Dispatchers.IO) {
+        linkItemDao.updateSummary(id, summary)
+    }
+}
+```
+
+---
+
+### Step 5: SettingsManager.kt
+
+Create `data/SettingsManager.kt`:
+
+```kotlin
+class SettingsManager(context: Context) {
+
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs = EncryptedSharedPreferences.create(
+        context,
+        "second_brain_secure_prefs",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    fun saveApiKey(key: String) {
+        prefs.edit().putString("claude_api_key", key).apply()
+    }
+
+    fun getApiKey(): String? {
+        return prefs.getString("claude_api_key", null)
+    }
+
+    fun clearApiKey() {
+        prefs.edit().remove("claude_api_key").apply()
+    }
+}
+```
+
+---
+
+### Step 6: ClaudeApiService.kt
+
+Create `data/ClaudeApiService.kt`.
+
+Use `java.net.HttpURLConnection` only. Do not add OkHttp or Retrofit.
+Use Gson (already in project) for JSON serialization and deserialization.
+
+**Request construction:**
+```
+POST https://api.anthropic.com/v1/messages
+Headers:
+  Content-Type: application/json
+  x-api-key: {apiKey}
+  anthropic-version: 2023-06-01
+
+Body:
+{
+  "model": "claude-haiku-4-5",
+  "max_tokens": 150,
+  "system": "You are a concise summarizer. Respond with 2-3 sentences only.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Summarize the following:\n\n{content}"
+    }
+  ]
+}
+```
+
+**Response parsing:**
+Parse `response.content[0].text` from the JSON response.
+
+**Return type:**
+`suspend fun summarize(content: String, apiKey: String): Result<String>`
+- Return `Result.success(text)` on HTTP 200 with valid response
+- Return `Result.failure(exception)` on any error (network, non-200 status, parse failure)
+- Never log the apiKey parameter
+
+---
+
+### Step 7: MainActivity.kt UI Changes
+
+**New State Variables**
+```kotlin
+var showSettingsScreen by remember { mutableStateOf(false) }
+var summarizingItemId by remember { mutableStateOf<Int?>(null) }
+var summarizeError by remember { mutableStateOf<String?>(null) }
+```
+
+**New Composables**
+
+`SettingsScreen(settingsManager, onBack)`:
+- Masked text field for API key with show/hide toggle
+- "Save" button: calls settingsManager.saveApiKey(), shows confirmation Snackbar
+- "Clear" button: calls settingsManager.clearApiKey(), shows confirmation Snackbar
+- Back navigation via onBack callback and BackHandler
+
+`SummaryCard(summary, onRegenerate)`:
+- Card with header "AI Summary"
+- Body: summary text
+- Footer: "Regenerate" TextButton that calls onRegenerate
+
+`SummarizeButton(hasSummary, isLoading, onClick)`:
+- If isLoading: show CircularProgressIndicator, disable interaction
+- If hasSummary: label "Regenerate Summary"
+- If no summary: label "Summarize"
+
+**Gear Icon in Top App Bar**
+Add an `IconButton` with `Icons.Default.Settings` to the existing top app bar.
+On click: set `showSettingsScreen = true`.
+
+**Summarization Flow**
+
+Wire this up when SummarizeButton is clicked:
+
+```
+1. val apiKey = settingsManager.getApiKey()
+   If null: show NoApiKeyDialog (two buttons: "Go to Settings", "Cancel")
+
+2. Check connectivity via ConnectivityManager.activeNetworkInfo?.isConnected
+   If false: show Snackbar "No internet connection. Summarization requires an internet connection."
+
+3. Determine content string based on item type:
+   - TextItem: item.content, truncated to 2000 chars
+   - LinkItem: "${item.title} ${item.description}", truncated to 2000 chars
+   - ImageItem: item.extractedText
+     If null or blank: show message "No text extracted from this image.
+     Summarization is not available." Return early, do not call API.
+
+4. Set summarizingItemId = item.id
+
+5. Launch coroutine on IO dispatcher:
+   val result = ClaudeApiService().summarize(content, apiKey)
+
+6. On Result.success:
+   Call the appropriate DatabaseManager.updateXxxItemSummary(item.id, summaryText)
+   Set summarizingItemId = null
+
+7. On Result.failure:
+   Set summarizingItemId = null
+   Set summarizeError = "Summarization failed. Tap to retry."
+   Show Snackbar with retry action that re-triggers step 1
+```
+
+---
 
 ## Database Version Summary
 
@@ -286,6 +295,4 @@ var tagSearchQuery by remember { mutableStateOf("") }
 |---|---|
 | 1 | Baseline: TextItemEntity, ImageItemEntity, LinkItemEntity |
 | 2 | Feature 2: TagEntity, three CrossRef tables |
-
-If features are implemented together in one session, combine migrations accordingly
-and use version 3 as the final target.
+| 3 | Feature 3: summary column on all three item entities |

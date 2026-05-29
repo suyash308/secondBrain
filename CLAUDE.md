@@ -42,6 +42,7 @@ and links. It uses offline OCR via Google ML Kit for image text extraction.
 - Migration version must increment by 1 from the current version.
 - Every new entity or column must have a corresponding DAO method.
 - Junction tables use composite primary keys, not auto-generated IDs.
+- Current database version is 2. Next migration must target version 3.
 
 ---
 
@@ -50,7 +51,8 @@ and links. It uses offline OCR via Google ML Kit for image text extraction.
 - Do not add new Gradle dependencies without explicitly asking the user first.
 - Prefer libraries already in the project before introducing new ones.
 - Current libraries in use: Room, Jetpack Compose, Google ML Kit 16.0.1, Coil, Jsoup,
-  Gson, Material 3, Kotlin Coroutines, Kotlin Flow.
+  Gson, Material 3, Kotlin Coroutines, Kotlin Flow, androidx.security:security-crypto.
+- security-crypto is already approved and added. Do not ask again.
 
 ---
 
