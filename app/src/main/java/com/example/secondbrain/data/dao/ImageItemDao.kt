@@ -30,4 +30,7 @@ interface ImageItemDao {
     
     @Query("UPDATE image_items SET extractedText = :extractedText WHERE id = :id")
     suspend fun updateExtractedText(id: Long, extractedText: String)
+
+    @Query("UPDATE image_items SET extractedText = :extractedText WHERE originalUri = :uri OR localPath = :uri")
+    suspend fun updateExtractedTextByUri(uri: String, extractedText: String)
 } 

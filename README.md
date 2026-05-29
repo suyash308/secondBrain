@@ -16,10 +16,10 @@ A powerful Android application that serves as your personal digital second brain
 - Clean, organized display with timestamps
 
 ### 🖼️ Image Management
-- **OCR Integration**: Extract text from images using Google ML Kit
+- **OCR Integration**: Extract text from images using Google ML Kit (offline, no internet required)
 - **Image Persistence**: Store images locally for offline access
-- **Searchable Images**: Find images by their extracted text content
-- **Full-screen Viewer**: Tap images to view in full-screen with zoom support
+- **Searchable Images**: Find images by their extracted text content (only images with readable text are searchable)
+- **Full-screen Viewer**: Tap images to view in full-screen with zoom and swipe-to-close support
 - **Gallery Upload**: Add images directly from device gallery
 
 ### 🔗 Link Management
@@ -44,21 +44,21 @@ A powerful Android application that serves as your personal digital second brain
 - **Coroutines**: Asynchronous programming
 
 ### Key Libraries
-- **Google ML Kit**: OCR text recognition
+- **Google ML Kit** `16.0.1`: Offline OCR text recognition (16KB page-size compatible)
 - **Coil**: Image loading and caching
 - **Jsoup**: Web scraping for link metadata
 - **Gson**: JSON serialization
 - **Material 3**: Modern design system
 
 ### Architecture
-- **MVVM Pattern**: Clean architecture with ViewModels
-- **Repository Pattern**: Data access abstraction
-- **Flow-based UI**: Reactive UI updates
+- **Single-Activity**: All UI in `MainActivity` using Jetpack Compose
+- **Repository Pattern**: Data access abstraction via `DatabaseManager`
+- **Flow-based UI**: Reactive UI updates driven by Room Flows
 - **Room Database**: SQLite with type safety
 
 ## 📋 Prerequisites
 
-- Android Studio Arctic Fox or later
+- Android Studio Hedgehog or later
 - Android SDK 28+ (API level 28)
 - Kotlin 1.9+
 - Minimum Android version: API 28 (Android 9.0)
@@ -94,13 +94,15 @@ A powerful Android application that serves as your personal digital second brain
 #### Via App Interface
 1. Open the Second Brain app
 2. Use the "Upload Image" button to add images from gallery
-3. Content is processed and made searchable
+3. Content is processed and made searchable via OCR
 
 ### Searching Content
 1. Open the app
 2. Use the search bar at the top
 3. Type your search query
 4. Results appear instantly across all content types
+
+> **Note:** Images are only searchable if OCR successfully extracted text from them. Images without readable text will not appear in search results.
 
 ### Viewing Content
 - **Text Items**: Tap the "Text" card to view all text content
@@ -111,15 +113,16 @@ A powerful Android application that serves as your personal digital second brain
 - Tap any image thumbnail to open full-screen viewer
 - Use pinch gestures to zoom in/out
 - Swipe down to close the viewer
+- Double-tap to toggle 2× zoom
 
 ## 🏗️ Project Structure
 
 ```
 app/src/main/java/com/example/secondbrain/
-├── MainActivity.kt                 # Main activity with UI logic
+├── MainActivity.kt                 # Main activity with all UI logic
 ├── data/
 │   ├── AppDatabase.kt             # Room database configuration
-│   ├── DatabaseManager.kt         # Database operations manager
+│   ├── DatabaseManager.kt         # Central database access point
 │   ├── entities/                  # Room entity classes
 │   │   ├── TextItemEntity.kt
 │   │   ├── ImageItemEntity.kt
@@ -145,12 +148,16 @@ app/src/main/java/com/example/secondbrain/
 ### Permissions
 The app requires the following permissions:
 - `INTERNET`: For fetching link metadata
-- `READ_EXTERNAL_STORAGE`: For accessing gallery images
+- `READ_MEDIA_IMAGES`: For accessing gallery images on Android 13+ (API 33+)
+- `READ_EXTERNAL_STORAGE`: For accessing gallery images on Android 9–12 (API 28–32)
 
 ### Build Configuration
-- **Target SDK**: 36 (Android 14)
+- **Target SDK**: 36 (Android 15)
 - **Minimum SDK**: 28 (Android 9.0)
 - **Compile SDK**: 36
+
+### 16KB Page Size
+This app targets Android 15+ and uses ML Kit `16.0.1`, which ships native libraries aligned at 16KB boundaries. This is required for all apps submitted to Google Play targeting Android 15+.
 
 ## 🎨 UI Components
 
@@ -176,14 +183,14 @@ The app requires the following permissions:
 // Text search
 val filteredTextItems = textItems.filter { item ->
     if (item is TextItem) {
-        !item.content.isNullOrEmpty() && 
+        !item.content.isNullOrEmpty() &&
         item.content.contains(query, ignoreCase = true)
     } else false
 }
 
-// Image search (OCR text)
+// Image search (OCR text only)
 val filteredImageItems = imageItems.filter { item ->
-    !item.extractedText.isNullOrEmpty() && 
+    !item.extractedText.isNullOrEmpty() &&
     item.extractedText.contains(query, ignoreCase = true)
 }
 
@@ -206,72 +213,82 @@ val filteredLinkItems = linkItems.filter { item ->
 - `id`: Primary key (auto-generated)
 - `originalUri`: Original image URI
 - `localPath`: Local file path
-- `extractedText`: OCR extracted text
+- `extractedText`: OCR extracted text (nullable)
 - `timestamp`: When added
 
 ### LinkItemEntity
 - `id`: Primary key (auto-generated)
 - `url`: Link URL
-- `title`: Page title
-- `description`: Page description
-- `imageUrl`: Preview image URL
+- `title`: Page title (nullable, fetched asynchronously)
+- `description`: Page description (nullable)
+- `imageUrl`: Preview image URL (nullable)
 - `timestamp`: When added
 
 ## 🔄 Data Flow
 
 1. **Content Addition**
    ```
-   User shares content → Intent handling → Content categorization → Database storage
+   User shares content → Intent handling → Content categorization → Room DB storage
    ```
 
 2. **OCR Processing**
    ```
-   Image added → OCR extraction → Text storage → Search indexing
+   Image added → Background OCR (offline) → extractedText updated in DB → UI recomposes
    ```
 
-3. **Search Flow**
+3. **Link Metadata**
    ```
-   User types query → Database query → Filter results → UI update
+   URL saved → Background Jsoup fetch → title/description/imageUrl updated in DB → UI recomposes
    ```
 
-4. **UI Updates**
+4. **Search Flow**
    ```
-   Database change → Flow emission → UI recomposition → Visual update
+   User types query → In-memory filter on Flow data → UI update
+   ```
+
+5. **UI Updates**
+   ```
+   Room DB change → Flow emission → collectAsState → Compose recomposition
    ```
 
 ## 🚀 Performance Features
 
-- **Reactive UI**: Flow-based data streams for real-time updates
-- **Efficient Search**: Database-level search queries
-- **Image Optimization**: Coil for efficient image loading
-- **Background Processing**: OCR runs in background threads
-- **Memory Management**: Proper lifecycle management
+- **Reactive UI**: Room Flow streams drive all UI state — no manual refresh needed
+- **Efficient Search**: In-memory filtering on already-loaded Flow data
+- **Image Optimization**: Coil for list thumbnails; bitmap downsampling (max 1920×1080) in full-screen viewer to prevent OOM
+- **Background Processing**: OCR and link metadata fetched on IO dispatcher
+- **Memory Management**: Proper lifecycle management via `lifecycleScope`
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
 1. **App not appearing in share sheet**
-   - Ensure app is installed and launched at least once
-   - Check that content type is supported (text, image, link)
+   - Ensure the app is installed and has been launched at least once
+   - Only `text/plain` and `image/*` MIME types are supported
 
 2. **Images not loading**
-   - Verify storage permissions are granted
-   - Check if image file exists in internal storage
+   - Verify storage permissions are granted in device Settings
+   - Check that the image file exists in internal storage
 
 3. **Search not working**
-   - Ensure database is properly initialized
+   - Ensure the database has been initialized (open the app at least once)
    - Check that content has been added successfully
 
 4. **OCR not extracting text**
-   - Verify image contains readable text
-   - Check internet connection for ML Kit models
+   - Verify the image contains clear, readable text
+   - OCR runs fully offline — no internet connection required
+   - Only Latin script is recognized (English and similar languages)
+
+5. **Link preview not showing title/image**
+   - Ensure an internet connection is available when saving the link
+   - Some sites block metadata scraping; the raw URL will be shown as fallback
 
 ### Debug Logging
-The app includes comprehensive debug logging. Check logcat for:
+The app includes debug logging. Check logcat (filter by `DEBUG`) for:
 - `DEBUG: OCR completed successfully!`
-- `DEBUG: Image metadata updated successfully`
-- `DEBUG: Search results found`
+- `DEBUG: Image metadata updated successfully in database`
+- `DEBUG: Link metadata updated successfully in database`
 
 ## 🤝 Contributing
 
@@ -301,4 +318,4 @@ For support and questions:
 
 ---
 
-**Second Brain** - Your digital memory, organized and searchable. 🧠✨ 
+**Second Brain** - Your digital memory, organized and searchable. 🧠✨

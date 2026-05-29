@@ -209,7 +209,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 "image/*", "image/jpeg", "image/png", "image/gif", "image/webp" -> {
-                    val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    @Suppress("DEPRECATION")
+                    val imageUri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    }
                     if (imageUri != null) {
                         // Copy image to internal storage
                         val localPath = copyImageToInternalStorage(imageUri)
@@ -242,8 +247,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isUrl(text: String): Boolean {
-        return text.startsWith("http://") || text.startsWith("https://") || 
-               text.startsWith("www.") || text.contains("://")
+        val trimmed = text.trim()
+        return trimmed.startsWith("http://") || trimmed.startsWith("https://") ||
+               trimmed.startsWith("www.")
     }
     
     private fun fetchLinkMetadata(url: String): LinkItem {
@@ -276,24 +282,15 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun updateLinkItem(originalUrl: String, updatedLinkItem: LinkItem) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val itemsJson = prefs.getString(LINK_ITEMS_KEY, "[]")
-        val type = object : TypeToken<List<LinkItem>>() {}.type
-        val items: MutableList<LinkItem> = gson.fromJson(itemsJson, type) ?: mutableListOf()
-        
-        // Find and update the matching link item
-        val updatedItems = items.map { item ->
-            if (item.url == originalUrl) {
-                println("DEBUG: Updating link item with metadata for: $originalUrl")
-                updatedLinkItem
-            } else {
-                item
-            }
+        lifecycleScope.launch(Dispatchers.IO) {
+            databaseManager.updateLinkMetadata(
+                url = originalUrl,
+                title = updatedLinkItem.title,
+                description = updatedLinkItem.description,
+                imageUrl = updatedLinkItem.imageUrl
+            )
+            println("DEBUG: Link metadata updated successfully in database")
         }
-        
-        // Save updated items back to SharedPreferences
-        prefs.edit().putString(LINK_ITEMS_KEY, gson.toJson(updatedItems)).apply()
-        println("DEBUG: Link metadata updated successfully")
     }
     
     private fun openUrlInBrowser(url: String) {
@@ -576,35 +573,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         
-        // Monitor SharedPreferences for trigger updates (for animations)
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        var imageAddedTrigger by remember { mutableStateOf(0L) }
-        var textAddedTrigger by remember { mutableStateOf(0L) }
-        var linkAddedTrigger by remember { mutableStateOf(0L) }
-        
-        LaunchedEffect(Unit) {
-            while (true) {
-                val imageTrigger = prefs.getLong(IMAGE_ADDED_TRIGGER_KEY, 0L)
-                if (imageTrigger > imageAddedTrigger) {
-                    imageAddedTrigger = imageTrigger
-                    triggerImageAddedFeedback()
-                }
-                
-                val textTrigger = prefs.getLong(TEXT_ADDED_TRIGGER_KEY, 0L)
-                if (textTrigger > textAddedTrigger) {
-                    textAddedTrigger = textTrigger
-                    triggerTextAddedFeedback()
-                }
-                
-                val linkTrigger = prefs.getLong(LINK_ADDED_TRIGGER_KEY, 0L)
-                if (linkTrigger > linkAddedTrigger) {
-                    linkAddedTrigger = linkTrigger
-                    triggerLinkAddedFeedback()
-                }
-                
-                delay(100) // Check every 100ms
-            }
-        }
+        // Trigger counter animations whenever counts change
+        LaunchedEffect(imageCount) { if (imageCount > 0) triggerImageAddedFeedback() }
+        LaunchedEffect(textCount) { if (textCount > 0) triggerTextAddedFeedback() }
+        LaunchedEffect(linkCount) { if (linkCount > 0) triggerLinkAddedFeedback() }
 
 
 
@@ -1030,7 +1002,7 @@ class MainActivity : ComponentActivity() {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(items.reversed()) { item ->
+                items(items) { item ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
@@ -1201,7 +1173,13 @@ class MainActivity : ComponentActivity() {
                 val file = File(imageData)
                 if (file.exists()) {
                     try {
-                        val loadedBitmap = BitmapFactory.decodeFile(imageData)
+                        val options = BitmapFactory.Options().apply {
+                            inJustDecodeBounds = true
+                            BitmapFactory.decodeFile(imageData, this)
+                            inSampleSize = calculateInSampleSize(outWidth, outHeight, 1920, 1080)
+                            inJustDecodeBounds = false
+                        }
+                        val loadedBitmap = BitmapFactory.decodeFile(imageData, options)
                         if (loadedBitmap != null) {
                             bitmap = loadedBitmap
                             isLoading = false
@@ -1439,7 +1417,7 @@ class MainActivity : ComponentActivity() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // Text items
-                    items(filteredTextItems.reversed()) { item ->
+                    items(filteredTextItems) { item ->
                         if (item is TextItem) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1472,7 +1450,7 @@ class MainActivity : ComponentActivity() {
                     }
                     
                     // Image items (OCR text hidden but searchable)
-                    items(filteredImageItems.reversed()) { item ->
+                    items(filteredImageItems) { item ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1536,7 +1514,7 @@ class MainActivity : ComponentActivity() {
                     }
                     
                     // Link items
-                    items(filteredLinkItems.reversed()) { item ->
+                    items(filteredLinkItems) { item ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1613,5 +1591,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
+    private fun calculateInSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight = height / 2
+            val halfWidth = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
+    }
 }

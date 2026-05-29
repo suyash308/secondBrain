@@ -67,18 +67,7 @@ class DatabaseManager(private val context: Context) {
     }
     
     suspend fun updateImageExtractedTextByUri(uri: String, extractedText: String) {
-        // Get all image items and find the one with matching URI
-        getAllImageItems().collect { imageItems ->
-            val matchingItem = imageItems.find { item ->
-                item.originalUri == uri || item.localPath == uri
-            }
-            
-            if (matchingItem != null) {
-                val updatedItem = matchingItem.copy(extractedText = extractedText)
-                val entity = DataMapper.toImageItemEntity(updatedItem)
-                imageItemDao.updateImageItem(entity)
-            }
-        }
+        imageItemDao.updateExtractedTextByUri(uri, extractedText)
     }
     
     suspend fun getImageItemCount(): Int {
@@ -105,6 +94,10 @@ class DatabaseManager(private val context: Context) {
     
     suspend fun getLinkItemCount(): Int {
         return linkItemDao.getLinkItemCount()
+    }
+
+    suspend fun updateLinkMetadata(url: String, title: String?, description: String?, imageUrl: String?) {
+        linkItemDao.updateLinkMetadata(url, title, description, imageUrl)
     }
     
     // Migration from SharedPreferences
