@@ -15,6 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,9 +37,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Email  // stand-in for Chat icon (core only; swap to Chat once material-icons-extended is added)
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -72,6 +81,22 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.secondbrain.ui.theme.SBBackground
+import com.example.secondbrain.ui.theme.SBFaint
+import com.example.secondbrain.ui.theme.SBLinkBlue
+import com.example.secondbrain.ui.theme.SBMuted
+import com.example.secondbrain.ui.theme.SBOk
+import com.example.secondbrain.ui.theme.SBOnPrimaryContainer
+import com.example.secondbrain.ui.theme.SBOnSurfaceVariant
+import com.example.secondbrain.ui.theme.SBOutlineVariant
+import com.example.secondbrain.ui.theme.SBPrimary
+import com.example.secondbrain.ui.theme.SBPrimaryContainer
+import com.example.secondbrain.ui.theme.SBPrimaryTint
+import com.example.secondbrain.ui.theme.SBSurface
+import com.example.secondbrain.ui.theme.SBSurfaceHigh
+import com.example.secondbrain.ui.theme.SBOutline
+import com.example.secondbrain.ui.theme.SBSurfaceLow
+import com.example.secondbrain.ui.theme.SBSurfaceLowest
 import com.example.secondbrain.ui.theme.SecondBrainTheme
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -693,8 +718,7 @@ class MainActivity : ComponentActivity() {
         var showDeleteConfirmation by remember { mutableStateOf(false) }
         var selectedTextItemForEdit by remember { mutableStateOf<TextItem?>(null) }
         var selectedLinkItemForEdit by remember { mutableStateOf<LinkItem?>(null) }
-        var showSettingsScreen by remember { mutableStateOf(false) }
-        var showChatScreen by remember { mutableStateOf(false) }
+        var currentTab by remember { mutableStateOf("home") }
         var activeConversationId by remember { mutableStateOf<Int?>(null) }
         var chatInput by remember { mutableStateOf("") }
         var isChatLoading by remember { mutableStateOf(false) }
@@ -846,13 +870,13 @@ class MainActivity : ComponentActivity() {
         // Handle system back button
         BackHandler {
             when {
-                showSettingsScreen -> { showSettingsScreen = false }
-                showChatScreen && activeConversationId != null -> {
+                currentTab == "settings" -> { currentTab = "home" }
+                currentTab == "chat" && activeConversationId != null -> {
                     activeConversationId = null
                     chatInput = ""
                     isChatLoading = false
                 }
-                showChatScreen -> { showChatScreen = false }
+                currentTab == "chat" -> { currentTab = "home" }
                 currentScreen == "editText" -> {
                     currentScreen = "text"
                     selectedTextItemForEdit = null
@@ -881,17 +905,34 @@ class MainActivity : ComponentActivity() {
 
 
 
+        // Hide bottom nav inside full-screen sub-screens
+        val showBottomNav = selectedImageItem == null &&
+            activeConversationId == null &&
+            currentScreen !in listOf("editText", "editLink")
+
         Scaffold(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            containerColor = SBBackground,
+            bottomBar = {
+                if (showBottomNav) {
+                    SecondBrainBottomNav(
+                        currentTab = currentTab,
+                        onTabSelected = { tab ->
+                            currentTab = tab
+                            if (tab != "chat") activeConversationId = null
+                        }
+                    )
+                }
+            }
         ) { innerPadding ->
             when {
-                showSettingsScreen -> {
+                currentTab == "settings" -> {
                     SettingsScreen(
-                        onBack = { showSettingsScreen = false },
+                        onBack = { currentTab = "home" },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
-                showChatScreen && activeConversationId == null -> {
+                currentTab == "chat" && activeConversationId == null -> {
                     ConversationListScreen(
                         onOpenConversation = { convId ->
                             activeConversationId = convId
@@ -906,11 +947,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onBack = { showChatScreen = false },
+                        onBack = { currentTab = "home" },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
-                showChatScreen && activeConversationId != null -> {
+                currentTab == "chat" && activeConversationId != null -> {
                     ChatScreen(
                         conversationId = activeConversationId!!,
                         hasApiKey = settingsManager.getApiKey() != null,
@@ -1025,7 +1066,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onGoToSettings = { showSettingsScreen = true },
+                        onGoToSettings = { currentTab = "settings" },
                         onBack = {
                             activeConversationId = null
                             chatInput = ""
@@ -1052,198 +1093,105 @@ class MainActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Header row with action icons
+                        // ── Top bar ──────────────────────────────────────
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 16.dp),
+                                .padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = "Second Brain",
-                                fontSize = 28.sp,
+                                fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                letterSpacing = (-0.2).sp,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
-                            Row {
-                                IconButton(onClick = { showChatScreen = true }) {
-                                    Icon(Icons.Default.Email, contentDescription = "Chat") // TODO: swap to Icons.Default.Chat after adding material-icons-extended
-                                }
-                                IconButton(onClick = { showSettingsScreen = true }) {
-                                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+                            IconButton(onClick = { onUploadImage() }) {
+                                Icon(Icons.Default.Add, contentDescription = "Capture", tint = SBOnSurfaceVariant)
+                            }
+                        }
+
+                        // ── Search bar ────────────────────────────────────
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 6.dp)
+                                .height(52.dp)
+                                .background(SBSurface, RoundedCornerShape(26.dp))
+                                .clickable { isSearching = !isSearching }
+                                .padding(horizontal = 18.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Icon(Icons.Default.Search, contentDescription = null, tint = SBOnSurfaceVariant, modifier = Modifier.size(22.dp))
+                                if (isSearching) {
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        modifier = Modifier.weight(1f),
+                                        textStyle = androidx.compose.ui.text.TextStyle(
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 15.5.sp
+                                        ),
+                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(SBPrimary),
+                                        singleLine = true,
+                                        decorationBox = { inner ->
+                                            if (searchQuery.isEmpty()) Text("Search your brain", color = SBMuted, fontSize = 15.5.sp)
+                                            inner()
+                                        }
+                                    )
+                                    IconButton(onClick = { searchQuery = ""; isSearching = false }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = SBMuted, modifier = Modifier.size(18.dp))
+                                    }
+                                } else {
+                                    Text("Search your brain", color = SBMuted, fontSize = 15.5.sp, modifier = Modifier.weight(1f))
                                 }
                             }
                         }
 
-                        // Search Bar at the top
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { 
-                                searchQuery = it
-                                isSearching = it.isNotEmpty()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 16.dp),
-                            placeholder = { Text("Search across text, images, and links…") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
-                            )
-                        )
-
                         if (isSearching) {
-                            // Search Results with back button
-                            Column(modifier = Modifier.weight(1f)) {
-                                // Header with back button
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    IconButton(
-                                        onClick = { 
-                                            isSearching = false
-                                            searchQuery = ""
-                                        }
-                                    ) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to main")
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Search Results",
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(16.dp))
-                                
-                                val searchTextItems = if (activeTagFilter == null) textItems
-                                    else textItems.filter { (it as? TextItem)?.id in tagFilteredTextIds }
-                                val searchImageItems = if (activeTagFilter == null) imageItems
-                                    else imageItems.filter { it.id in tagFilteredImageIds }
-                                val searchLinkItems = if (activeTagFilter == null) linkItems
-                                    else linkItems.filter { it.id in tagFilteredLinkIds }
-                                SearchResults(
-                                    query = searchQuery,
-                                    textItems = searchTextItems,
-                                    imageItems = searchImageItems,
-                                    linkItems = searchLinkItems,
-                                    tagMatchedTextIds = tagSearchTextIds,
-                                    tagMatchedImageIds = tagSearchImageIds,
-                                    tagMatchedLinkIds = tagSearchLinkIds,
-                                    modifier = Modifier.weight(1f),
-                                    onImageClick = { imageItem ->
-                                        selectedImageItem = imageItem
-                                    }
-                                )
-                            }
+                            val searchTextItems = if (activeTagFilter == null) textItems
+                                else textItems.filter { (it as? TextItem)?.id in tagFilteredTextIds }
+                            val searchImageItems = if (activeTagFilter == null) imageItems
+                                else imageItems.filter { it.id in tagFilteredImageIds }
+                            val searchLinkItems = if (activeTagFilter == null) linkItems
+                                else linkItems.filter { it.id in tagFilteredLinkIds }
+                            SearchResults(
+                                query = searchQuery,
+                                textItems = searchTextItems,
+                                imageItems = searchImageItems,
+                                linkItems = searchLinkItems,
+                                tagMatchedTextIds = tagSearchTextIds,
+                                tagMatchedImageIds = tagSearchImageIds,
+                                tagMatchedLinkIds = tagSearchLinkIds,
+                                modifier = Modifier.weight(1f),
+                                onImageClick = { selectedImageItem = it }
+                            )
                         } else {
-                            Text(
-                                text = "Your categorized content",
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(bottom = 32.dp)
-                            )
-
-                            // Category Cards
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CategoryCard(
-                                    title = "Text",
-                                    count = textCount,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .graphicsLayer {
-                                            scaleX = textCountScale
-                                            scaleY = textCountScale
-                                        },
-                                    onClick = { currentScreen = "text" },
-                                    icon = "📄"
-                                )
-                                CategoryCard(
-                                    title = "Image",
-                                    count = imageCount,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .graphicsLayer {
-                                            scaleX = imageCountScale
-                                            scaleY = imageCountScale
-                                        },
-                                    onClick = { 
-                                        println("DEBUG: Image folder clicked, currentScreen set to 'image'")
-                                        currentScreen = "image" 
-                                    },
-                                    icon = "🖼️"
-                                )
-                                CategoryCard(
-                                    title = "Link",
-                                    count = linkCount,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .graphicsLayer {
-                                            scaleX = linkCountScale
-                                            scaleY = linkCountScale
-                                        },
-                                    onClick = { currentScreen = "link" },
-                                    icon = "🔗"
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(32.dp))
-
-                            // Upload Image Button
-                            Button(
-                                onClick = { onUploadImage() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 32.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "Upload",
-                                        modifier = Modifier.size(20.dp)
+                            // ── 2×2 Category grid ─────────────────────────
+                            LazyColumn(modifier = Modifier.weight(1f)) {
+                                item {
+                                    val cards = listOf(
+                                        Triple("Notes",  textCount,  { currentScreen = "text" }),
+                                        Triple("Images", imageCount, { currentScreen = "image" }),
+                                        Triple("Links",  linkCount,  { currentScreen = "link" })
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Upload Image",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
+                                    Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        cards.chunked(2).forEach { row ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                row.forEach { (label, count, onClick) ->
+                                                    Box(modifier = Modifier.weight(1f)) {
+                                                        DesignCategoryCard(label = label, count = count, onClick = onClick)
+                                                    }
+                                                }
+                                                if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = "Tap on folders to view your shared content!",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                textAlign = TextAlign.Center
-                            )
-
-
                         }
                     }
                 }
@@ -2470,7 +2418,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
     @Composable
     private fun ConversationListScreen(
         onOpenConversation: (Int) -> Unit,
@@ -2483,85 +2431,84 @@ class MainActivity : ComponentActivity() {
 
         BackHandler { onBack() }
 
-        Scaffold(
-            modifier = modifier.fillMaxSize(),
-            topBar = {
-                TopAppBar(
-                    title = { Text("Chats") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = onNewConversation) {
-                            Icon(Icons.Default.Add, contentDescription = "New conversation")
-                        }
-                    }
-                )
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(SBBackground)
+        ) {
+            // Top bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Chat", fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
+                IconButton(onClick = onNewConversation) {
+                    Icon(Icons.Default.Add, contentDescription = "New conversation", tint = SBOnSurfaceVariant)
+                }
             }
-        ) { innerPadding ->
+
             if (conversations.isEmpty()) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(32.dp),
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text("💬", fontSize = 48.sp, modifier = Modifier.padding(bottom = 16.dp))
-                    Text(
-                        "No conversations yet",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Tap + to start a new conversation",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
+                    Icon(Icons.Default.Email, contentDescription = null, tint = SBMuted, modifier = Modifier.size(48.dp).padding(bottom = 16.dp))
+                    Text("No conversations yet", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Tap + to start one", fontSize = 14.sp, color = SBMuted)
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(conversations, key = { it.id }) { conversation ->
-                        @OptIn(ExperimentalFoundationApi::class)
+                        // Design: conversation cards (variant A)
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
                                 .combinedClickable(
                                     onClick = { onOpenConversation(conversation.id) },
                                     onLongClick = { conversationToDelete = conversation }
                                 ),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = SBSurfaceLow)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("💬", fontSize = 24.sp, modifier = Modifier.padding(end = 12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Top
+                                ) {
                                     Text(
                                         text = conversation.title,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = (-0.2).sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
                                     )
                                     Text(
-                                        text = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+                                        text = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault())
                                             .format(java.util.Date(conversation.createdAt)),
                                         fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        color = SBFaint
                                     )
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Icon(Icons.Default.Email, contentDescription = null, tint = SBFaint, modifier = Modifier.size(14.dp))
+                                    Text("Tap to continue", fontSize = 12.sp, color = SBFaint, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -2577,9 +2524,7 @@ class MainActivity : ComponentActivity() {
                 text = { Text("\"${conv.title}\" and all its messages will be deleted.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            databaseManager.deleteConversation(conv.id)
-                        }
+                        lifecycleScope.launch(Dispatchers.IO) { databaseManager.deleteConversation(conv.id) }
                         conversationToDelete = null
                     }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 },
@@ -2600,65 +2545,262 @@ class MainActivity : ComponentActivity() {
         var showKey by remember { mutableStateOf(false) }
         val snackbarHostState = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
+        val hasKey = settingsManager.getApiKey() != null
 
         BackHandler { onBack() }
 
         Scaffold(
             modifier = modifier.fillMaxSize(),
-            topBar = {
-                TopAppBar(
-                    title = { Text("Settings") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                )
-            },
+            containerColor = SBBackground,
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                contentPadding = PaddingValues(bottom = 32.dp)
             ) {
-                Text(
-                    text = "OpenRouter API Key",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                OutlinedTextField(
-                    value = apiKeyInput,
-                    onValueChange = { apiKeyInput = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Key") },
-                    visualTransformation = if (showKey) VisualTransformation.None
-                                           else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        TextButton(onClick = { showKey = !showKey }) {
-                            Text(if (showKey) "Hide" else "Show", fontSize = 12.sp)
-                        }
-                    },
-                    singleLine = true
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            settingsManager.saveApiKey(apiKeyInput.trim())
-                            scope.launch { snackbarHostState.showSnackbar("API key saved") }
-                        },
-                        enabled = apiKeyInput.isNotBlank()
-                    ) { Text("Save") }
-                    OutlinedButton(
-                        onClick = {
-                            settingsManager.clearApiKey()
-                            apiKeyInput = ""
-                            scope.launch { snackbarHostState.showSnackbar("API key cleared") }
-                        }
-                    ) { Text("Clear") }
+                // Top bar
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Settings", fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
+                    }
                 }
+
+                // API key hero card (design variant C)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
+                            .background(SBPrimaryTint, RoundedCornerShape(28.dp))
+                            .border(1.dp, SBOutlineVariant, RoundedCornerShape(28.dp))
+                            .padding(20.dp)
+                    ) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(46.dp)
+                                        .background(SBPrimaryContainer, RoundedCornerShape(14.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = SBOnPrimaryContainer, modifier = Modifier.size(22.dp))
+                                }
+                                if (hasKey) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(Icons.Default.Settings, contentDescription = null, tint = SBOk, modifier = Modifier.size(15.dp))
+                                        Text("Connected", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SBOk)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text("OpenRouter API Key", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            // Key field
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .background(SBBackground, RoundedCornerShape(14.dp))
+                                    .border(1.dp, SBOutline, RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BasicTextField(
+                                    value = apiKeyInput,
+                                    onValueChange = { apiKeyInput = it },
+                                    modifier = Modifier.weight(1f),
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        color = SBOnSurfaceVariant,
+                                        fontSize = 13.sp,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        letterSpacing = 1.sp
+                                    ),
+                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(SBPrimary),
+                                    singleLine = true,
+                                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                    decorationBox = { inner ->
+                                        if (apiKeyInput.isEmpty()) Text("sk-or-v1-••••••••", color = SBFaint, fontSize = 13.sp,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                                        inner()
+                                    }
+                                )
+                                TextButton(
+                                    onClick = { showKey = !showKey },
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Text(if (showKey) "Hide" else "Show", fontSize = 12.sp, color = SBPrimary)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text("Used for embeddings and chat. Stored encrypted on device.", fontSize = 12.sp, color = SBMuted, lineHeight = 17.sp)
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        settingsManager.saveApiKey(apiKeyInput.trim())
+                                        scope.launch { snackbarHostState.showSnackbar("API key saved") }
+                                    },
+                                    enabled = apiKeyInput.isNotBlank(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Save") }
+                                OutlinedButton(
+                                    onClick = {
+                                        settingsManager.clearApiKey()
+                                        apiKeyInput = ""
+                                        scope.launch { snackbarHostState.showSnackbar("API key cleared") }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, SBOutline)
+                                ) { Text("Clear", color = SBOnSurfaceVariant) }
+                            }
+                        }
+                    }
+                }
+
+                // Models section label
+                item {
+                    Text("MODELS", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
+                        color = SBPrimary, modifier = Modifier.padding(start = 32.dp, top = 14.dp, bottom = 4.dp))
+                }
+                item {
+                    SettingsRow(icon = Icons.Default.Email, title = "Chat model", subtitle = "anthropic/claude-haiku-4-5")
+                }
+                item {
+                    SettingsRow(icon = Icons.Default.Search, title = "Embedding model", subtitle = "openai/text-embedding-3-small")
+                }
+
+                // App section label
+                item {
+                    Text("APP", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
+                        color = SBPrimary, modifier = Modifier.padding(start = 32.dp, top = 14.dp, bottom = 4.dp))
+                }
+                item {
+                    SettingsRow(icon = Icons.Default.Settings, title = "Theme", subtitle = "Dark — always on")
+                }
+                item {
+                    SettingsRow(icon = Icons.Default.Lock, title = "Storage", subtitle = "Encrypted on device")
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsRow(
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        title: String,
+        subtitle: String? = null
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.Transparent)
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).background(SBSurface, RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = SBOnSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                if (subtitle != null) Text(subtitle, fontSize = 12.sp, color = SBMuted, modifier = Modifier.padding(top = 1.dp))
+            }
+        }
+    }
+
+    // ── Bottom Navigation Bar ──────────────────────────────────────────────────
+    @Composable
+    private fun SecondBrainBottomNav(
+        currentTab: String,
+        onTabSelected: (String) -> Unit
+    ) {
+        val items = listOf(
+            Triple("home",     Icons.Default.Home,     "Home"),
+            Triple("search",   Icons.Default.Search,   "Search"),
+            Triple("chat",     Icons.Default.Email,    "Chat"),
+            Triple("settings", Icons.Default.Settings, "Settings")
+        )
+        NavigationBar(
+            containerColor = SBSurfaceLowest,
+            tonalElevation = 0.dp
+        ) {
+            items.forEach { (id, icon, label) ->
+                val selected = currentTab == id
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = { onTabSelected(id) },
+                    icon = { Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp)) },
+                    label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = SBOnPrimaryContainer,
+                        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                        indicatorColor = SBPrimaryContainer,
+                        unselectedIconColor = SBMuted,
+                        unselectedTextColor = SBMuted
+                    )
+                )
+            }
+        }
+    }
+
+    // ── Redesigned category card (design system B variant) ─────────────────────
+    @Composable
+    private fun DesignCategoryCard(label: String, count: Int, onClick: () -> Unit) {
+        val (icon, tint, bg) = when (label) {
+            "Notes"  -> Triple(Icons.Default.Create, SBPrimary, SBPrimaryTint)
+            "Images" -> Triple(Icons.Default.Star,   SBOk,      Color(0x238FD19A))
+            "Links"  -> Triple(Icons.Default.Share,  SBLinkBlue,Color(0x23AAC6F5))
+            else     -> Triple(Icons.Default.Add,    SBMuted,   SBSurfaceHigh)
+        }
+        Card(
+            onClick = onClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(104.dp),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = SBSurfaceLowest)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                // Icon badge top-left
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(bg, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+                }
+                // Count top-right
+                Text(
+                    text = count.toString(),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-1).sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                )
+                // Label bottom-left
+                Text(
+                    text = label,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = SBOnSurfaceVariant,
+                    modifier = Modifier.align(Alignment.BottomStart)
+                )
             }
         }
     }
