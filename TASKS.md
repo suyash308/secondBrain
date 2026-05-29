@@ -41,65 +41,109 @@ Mark tasks done by changing `[ ]` to `[x]`.
 
 ---
 
-## Feature 3: Claude API Summarization
+## Feature 3: RAG Chat Agent
 
-### Task 3.1 -- Entities, DAOs, and Migration
-**Scope:** Add summary column to all three entity classes. Add updateSummary DAO
-method to all three DAOs. Add MIGRATION_2_3 to AppDatabase and bump version to 3.
+### Task 3.1 -- Entities, DAO, and Migration
+**Scope:** Add embedding column to all three item entities. Create
+ChatMessageEntity. Create ChatMessageDao. Add MIGRATION_2_3. Register new
+entity and DAO in AppDatabase. Bump version to 3.
 **Files:** `TextItemEntity.kt`, `ImageItemEntity.kt`, `LinkItemEntity.kt`,
-`TextItemDao.kt`, `ImageItemDao.kt`, `LinkItemDao.kt`, `AppDatabase.kt`
-**Done when:** All three entities have a nullable summary field. All three DAOs have
-updateSummary. Database version is 3. App does not crash on a device with version 2.
+`AppDatabase.kt`. Create `data/entities/ChatMessageEntity.kt`,
+`data/dao/ChatMessageDao.kt`.
+**Done when:** All three item entities have nullable embedding column.
+ChatMessageEntity and ChatMessageDao exist. Database version is 3. App does not
+crash on a device with version 2 installed.
 - [ ] Done
 
 ---
 
-### Task 3.2 -- SettingsManager
-**Scope:** Create SettingsManager with saveApiKey, getApiKey, clearApiKey using
-EncryptedSharedPreferences. security-crypto dependency is already in build.gradle.
-**Files:** Create `data/SettingsManager.kt`
-**Done when:** File exists, compiles, and correctly stores and retrieves a test value
-using EncryptedSharedPreferences.
+### Task 3.2 -- DAO Embedding Methods
+**Scope:** Add updateEmbedding, getAllEmbeddings, and getItemsWithoutEmbedding
+methods to TextItemDao, ImageItemDao, and LinkItemDao.
+**Files:** `TextItemDao.kt`, `ImageItemDao.kt`, `LinkItemDao.kt`
+**Done when:** All three DAOs have the three new methods. App compiles.
 - [ ] Done
 
 ---
 
-### Task 3.3 -- ClaudeApiService
-**Scope:** Create ClaudeApiService with summarize() using HttpURLConnection and Gson.
-No new network dependency.
-**Files:** Create `data/ClaudeApiService.kt`
-**Done when:** File exists, compiles, sends correct request body per TECHNICAL_DESIGN.md,
-parses content[0].text from response, returns Result.success or Result.failure.
+### Task 3.3 -- SettingsManager and EmbeddingUtils
+**Scope:** Create SettingsManager for secure API key storage. Create
+EmbeddingUtils with cosineSimilarity, parseEmbedding, and serializeEmbedding.
+**Files:** Create `data/SettingsManager.kt`, create `data/EmbeddingUtils.kt`
+**Done when:** Both files exist and compile. SettingsManager correctly stores
+and retrieves a value using EncryptedSharedPreferences.
 - [ ] Done
 
 ---
 
-### Task 3.4 -- DatabaseManager Summary Methods
-**Scope:** Add updateTextItemSummary, updateImageItemSummary, updateLinkItemSummary
-to DatabaseManager.
+### Task 3.4 -- OpenRouterService
+**Scope:** Create OpenRouterService with generateEmbedding and chat methods.
+HttpURLConnection and Gson only. No new dependencies.
+**Files:** Create `data/OpenRouterService.kt`
+**Done when:** File exists and compiles. generateEmbedding sends correct request
+to /embeddings endpoint and parses data[0].embedding. chat sends correct request
+to /chat/completions with system prompt, context block, history, and question,
+and parses choices[0].message.content. Both return Result.success or
+Result.failure. API key is never logged.
+- [ ] Done
+
+---
+
+### Task 3.5 -- DatabaseManager Chat and Embedding Methods
+**Scope:** Add all embedding update, embedding query, and chat message methods
+to DatabaseManager as specified in TECHNICAL_DESIGN.md Step 7.
 **Files:** `DatabaseManager.kt`
-**Done when:** All three methods exist, run on IO dispatcher, and delegate to the
-correct DAO updateSummary method. App compiles.
+**Done when:** All methods exist, run on IO dispatcher, and delegate to correct
+DAOs. App compiles.
 - [ ] Done
 
 ---
 
-### Task 3.5 -- Settings Screen and Gear Icon
-**Scope:** Add SettingsScreen composable and gear icon to the top app bar.
+### Task 3.6 -- Settings Screen and Gear Icon
+**Scope:** Add SettingsScreen composable. Add gear icon to top app bar.
+Wire up navigation via showSettingsScreen state variable.
 **Files:** `MainActivity.kt`
-**Done when:** Gear icon visible in top bar. Tapping opens SettingsScreen. User can
-enter, save, and clear API key. Confirmation Snackbar shown on save and clear.
-Back navigation works via back button and BackHandler.
+**Done when:** Gear icon visible in top bar. Tapping opens SettingsScreen. User
+can enter, save, and clear API key. Confirmation Snackbar shown on both actions.
+Back navigation works.
 - [ ] Done
 
 ---
 
-### Task 3.6 -- Summarize Button, Summary Card, and Full Flow
-**Scope:** Add SummarizeButton and SummaryCard composables. Wire up the complete
-summarization flow including all error states as specified in TECHNICAL_DESIGN.md.
+### Task 3.7 -- Chat Screen UI (No API Calls Yet)
+**Scope:** Build the full Chat screen UI with static/mock data. No real API calls
+in this task. Wire up navigation from main screen via chat icon.
+**Files:** `MainActivity.kt`
+**Done when:** Chat icon visible in top bar. Tapping opens ChatScreen. Empty
+state shown when no messages. Message bubbles render correctly for both user and
+assistant roles. TypingIndicator composable exists. ChatInputBar renders with
+send button. NoApiKeyBanner renders. NewConversationDialog renders. Back
+navigation works. All UI driven by state variables, no API calls yet.
+- [ ] Done
+
+---
+
+### Task 3.8 -- Embedding on Item Save and Background Job
+**Scope:** After any new item is saved in MainActivity, trigger embedding
+generation via OpenRouterService and store result via DatabaseManager.
+Implement background embedding job that runs once on first launch after update
+for all items with null embedding.
+**Files:** `MainActivity.kt`
+**Done when:** Saving a new text, image, or link item triggers an embedding API
+call in the background. The embedding is stored in the database. Background job
+runs silently on first launch, generates embeddings for all items that have none,
+and sets the done flag in SharedPreferences so it does not run again.
+- [ ] Done
+
+---
+
+### Task 3.9 -- Full Chat Send Flow and Retrieval
+**Scope:** Wire up the complete send flow: key check, offline check, embed
+question, retrieve relevant items via cosine similarity, call chat API, save
+response with source metadata, display in UI. Implement all error states.
 **Files:** `MainActivity.kt`
 **Done when:** All acceptance criteria for Feature 3 in REQUIREMENTS.md are met.
-Verify each criterion one by one before marking done.
+Go through each criterion one by one and confirm before marking done.
 - [ ] Done
 
 ---
@@ -110,7 +154,7 @@ Verify each criterion one by one before marking done.
 |---|---|---|
 | Feature 1: Delete and Edit | 6 | 6 |
 | Feature 2: Tags | 7 | 7 |
-| Feature 3: Summarization | 6 | 0 |
-| **Total** | **19** | **13** |
+| Feature 3: RAG Chat Agent | 9 | 0 |
+| **Total** | **22** | **13** |
 
 Update this table as tasks are completed.

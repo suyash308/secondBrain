@@ -9,6 +9,8 @@ Never deviate from these rules unless the user explicitly updates this file.
 
 Second Brain is an Android app for capturing, organizing, and searching text, images,
 and links. It uses offline OCR via Google ML Kit for image text extraction.
+Features 1 (Delete and Edit) and 2 (Tags) are complete.
+Feature 3 (RAG Chat Agent) is currently being built.
 
 ---
 
@@ -42,7 +44,7 @@ and links. It uses offline OCR via Google ML Kit for image text extraction.
 - Migration version must increment by 1 from the current version.
 - Every new entity or column must have a corresponding DAO method.
 - Junction tables use composite primary keys, not auto-generated IDs.
-- Current database version is 2. Next migration must target version 3.
+- Current database version is 2. Feature 3 migration targets version 3.
 
 ---
 
@@ -53,13 +55,28 @@ and links. It uses offline OCR via Google ML Kit for image text extraction.
 - Current libraries in use: Room, Jetpack Compose, Google ML Kit 16.0.1, Coil, Jsoup,
   Gson, Material 3, Kotlin Coroutines, Kotlin Flow, androidx.security:security-crypto.
 - security-crypto is already approved and added. Do not ask again.
+- For Feature 3, one new dependency is pre-approved: nothing extra needed.
+  HttpURLConnection handles all API calls. Gson handles all JSON. No new libs required.
+
+---
+
+## API Rules
+
+- All external API calls go through OpenRouter only.
+- OpenRouter base URL: https://openrouter.ai/api/v1
+- Chat model: anthropic/claude-haiku-4-5
+- Embedding model: openai/text-embedding-3-small
+- Auth header: Authorization: Bearer {key}
+- Required header on every request: HTTP-Referer: second-brain-android
+- Never hardcode the API key. Store in EncryptedSharedPreferences via SettingsManager.
+- Never log the API key, even partially.
 
 ---
 
 ## Security Rules
 
 - Never hardcode API keys in source files.
-- Store the Claude API key in `EncryptedSharedPreferences` only.
+- Store the OpenRouter API key in EncryptedSharedPreferences only.
 - Never log API keys, even partially.
 - Never expose API keys in UI components.
 
@@ -89,5 +106,6 @@ and links. It uses offline OCR via Google ML Kit for image text extraction.
 - Do not switch Room to any other database library.
 - Do not replace Coroutines with any other async pattern.
 - Do not add any analytics or crash reporting library.
+- Do not add OkHttp, Retrofit, or any HTTP library. Use HttpURLConnection only.
 - Do not modify `CLAUDE.md`, `REQUIREMENTS.md`, `TECHNICAL_DESIGN.md`, or `TASKS.md`
   unless the user explicitly asks.
