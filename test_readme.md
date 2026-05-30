@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- Replace the line below with your actual GIF path after recording -->
-<!-- <img src=".github/assets/demo.gif" width="320" alt="Second Brain Demo"/> -->
+<img src=".github/assets/demo.gif" width="320" alt="Second Brain Demo"/>
 
 # Second Brain
 
