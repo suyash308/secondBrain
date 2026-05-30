@@ -1,201 +1,190 @@
-# Second Brain - Android App
+<div align="center">
 
-A powerful Android application that serves as your personal digital second brain, helping you capture, organize, and search through text, images, and links — and chat with your saved content using AI.
+<!-- Replace the line below with your actual GIF path after recording -->
+<img src=".github/assets/demo.gif" width="320" alt="Second Brain Demo"/>
 
-## 🧠 Features
+# Second Brain
 
-### 📱 Core Functionality
-- **Share Sheet Integration**: Appears in Android's share menu for easy content capture
-- **Content Categorization**: Automatically categorizes shared content into Text, Images, and Links
-- **Real-time Search**: Search across all content types including tag names
-- **Persistent Storage**: All data stored locally using Room database
+**A local-first Android second brain. Capture anything. Search everything. Chat with your own content using AI.**
 
-### 📄 Text Management
-- Capture and store text content from any app
-- Full-text search capabilities
-- Edit or delete saved text items
-- Clean, organized display with timestamps
+No cloud. No subscription. No data leaves your phone.
 
-### 🖼️ Image Management
-- **OCR Integration**: Extract text from images using Google ML Kit (offline, no internet required)
-- **Image Persistence**: Store images locally for offline access
-- **Searchable Images**: Find images by their extracted text content
-- **Full-screen Viewer**: Tap images to view in full-screen with zoom and swipe-to-close support
-- **Gallery Upload**: Add images directly from device gallery
-- Delete saved images (also removes the local file)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-API%2028%2B-green.svg)](https://android-arsenal.com/api?level=28)
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-purple.svg)](https://kotlinlang.org)
+[![Room](https://img.shields.io/badge/Room-v4-blue.svg)](https://developer.android.com/training/data-storage/room)
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-brightgreen.svg)](https://developer.android.com/jetpack/compose)
 
-### 🔗 Link Management
-- **Metadata Extraction**: Automatically fetch title, description, and preview images
-- **Rich Link Previews**: Display link metadata in organized cards
-- **Browser Integration**: Tap links to open in default browser
-- **Searchable Content**: Search through link titles, descriptions, and URLs
-- Edit URL and re-fetch metadata; delete saved links
+</div>
 
-### 🏷️ Tags
-- Add one or more tags to any item (text, image, or link)
-- Tags are lowercase with hyphens (spaces auto-converted)
-- Filter content lists by tag
-- Search by tag name — items appear in results even if the tag doesn't match the content
-- Tag chips shown on each item card (up to 3, then "+N more")
+---
 
-### 🤖 RAG Chat Agent
-- Ask questions in plain English about your saved content
-- Answers are grounded in your own notes, images, and links — not general knowledge
-- **Vector embeddings** generated automatically when any item is saved
-- Retrieves the top 4 most relevant items using cosine similarity
-- Multi-turn conversation with history sent to the model
-- Multiple named conversation threads — each auto-titled from the first message
-- Conversation history persists across app restarts
-- Source attribution: every answer lists which saved items were used
+## Why This Exists
 
-### 🔍 Advanced Search
-- **Cross-content Search**: Search across text, images, and links simultaneously
-- **Tag Search**: Typing a tag name surfaces items tagged with it
-- **Real-time Results**: Instant search results as you type
-- **Tag + text AND logic**: active tag filter combines with search query
+Every second brain app is cloud-dependent, expensive, or both. Notion goes offline and you lose your notes. Obsidian mobile is a desktop app crammed onto a phone. AI features require a monthly subscription to someone else's infrastructure.
 
-## 🛠️ Technical Stack
+Second Brain stores everything in a local Room database on your device. Your notes, images, and links never leave your phone. The AI features use your own OpenRouter API key so there is no subscription, no middleman, and no per-query pricing beyond what you pay OpenRouter directly.
 
-### Core Technologies
-- **Kotlin**: Primary programming language
-- **Jetpack Compose**: Modern UI framework
-- **Room Database**: Local data persistence (version 4)
-- **Flow**: Reactive data streams
-- **Coroutines**: Asynchronous programming
+---
 
-### Key Libraries
-- **Google ML Kit** `16.0.1`: Offline OCR text recognition (16KB page-size compatible)
-- **Coil**: Image loading and caching
-- **Jsoup**: Web scraping for link metadata
-- **Gson**: JSON serialization and embedding storage
-- **Material 3**: Modern design system
-- **AndroidX Security Crypto**: EncryptedSharedPreferences for API key storage
+## What It Does
 
-### Architecture
-- **Single-Activity**: All UI in `MainActivity` using Jetpack Compose
-- **Repository Pattern**: Data access abstraction via `DatabaseManager`
-- **Flow-based UI**: Reactive UI updates driven by Room Flows
-- **RAG Pipeline**: Embed → Store → Retrieve by cosine similarity → Chat
+| Feature | Detail |
+|---|---|
+| **Capture via share sheet** | Appears in Android share menu for instant text, image, and link capture |
+| **Search images by content** | Offline OCR via Google ML Kit extracts and indexes text from photos |
+| **Chat with your saved content** | RAG pipeline: embed your question, retrieve relevant items, answer using only your data |
+| **Tags** | Add tags to any item, filter lists by tag, search by tag name |
+| **Edit and delete** | Long press any item to edit, re-tag, or delete |
+| **Multi-thread chat** | Named conversation threads, each auto-titled from the first message |
+| **Fully offline** | All core features work with no internet. AI chat requires connection only during the API call |
 
-### AI / API
-- **Provider**: OpenRouter (`https://openrouter.ai/api/v1`)
-- **Embedding model**: `openai/text-embedding-3-small` (1536 dimensions)
-- **Chat model**: `anthropic/claude-haiku-4-5`
-- **Transport**: `HttpURLConnection` only — no OkHttp or Retrofit
+---
 
-## 📋 Prerequisites
+## Screenshots
+
+<!-- Add your screenshots here. Example:
+| Main Screen | Chat | Tags |
+|---|---|---|
+| <img src=".github/assets/screenshot_main.png" width="200"/> | <img src=".github/assets/screenshot_chat.png" width="200"/> | <img src=".github/assets/screenshot_tags.png" width="200"/> |
+-->
+
+---
+
+## How the AI Works
+
+```
+You type:    "what are my travel plans for June?"
+
+App:         embeds your question via OpenRouter
+             runs cosine similarity against all stored embeddings
+             retrieves top 4 saved items scoring above 0.3 similarity
+             sends them as context to Claude Haiku via OpenRouter
+
+Claude:      answers using only your saved content
+             lists which items were used as sources below every reply
+```
+
+No hallucination by design. If the answer is not in your saved content, the model says so explicitly. Sources are shown under every response so you can verify the answer yourself.
+
+---
+
+## Getting Started
+
+### Prerequisites
 
 - Android Studio Hedgehog or later
-- Android SDK 28+ (API level 28)
-- Kotlin 1.9+
-- Minimum Android version: API 28 (Android 9.0)
-- An [OpenRouter](https://openrouter.ai) API key (free tier available) to use the Chat feature
+- Android device running API 28 (Android 9.0) or higher
+- An [OpenRouter](https://openrouter.ai) API key for AI features — free to get, pay only per query
 
-## 🚀 Installation
+### Build and Install
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd secondBrain
-   ```
+```bash
+git clone https://github.com/suyash308/secondbrain.git
+cd secondbrain
+```
 
-2. **Open in Android Studio**
-   - Launch Android Studio
-   - Open the project folder
-   - Wait for Gradle sync to complete
+Open in Android Studio, wait for Gradle sync, connect your device, click Run.
 
-3. **Build and Run**
-   - Connect an Android device or start an emulator
-   - Click "Run" in Android Studio
-   - The app will install and launch automatically
+### Set Up AI
 
-## 📱 Usage Guide
+1. Tap the gear icon in the top bar
+2. Paste your OpenRouter API key
+3. Tap Save
 
-### Adding Content
+Start saving content and ask questions in the chat tab.
 
-#### Via Share Sheet
-1. Open any app with content you want to save
-2. Tap the share button
-3. Select "Second Brain" from the share menu
-4. Content is automatically categorized and saved
+### AI Cost Reference
 
-#### Via App Interface
-1. Open the Second Brain app
-2. Use the **Upload Image** button to add images from gallery
-3. Content is processed and made searchable via OCR
+| What | Model | Cost |
+|---|---|---|
+| Embedding per item saved | text-embedding-3-small | ~$0.000004 |
+| Chat query (avg 1500 tokens) | claude-haiku-4-5 | ~$0.002 |
+| 200 chat queries per month | claude-haiku-4-5 | ~$0.40 |
 
-### Editing and Deleting
-- **Long press** any item card → bottom sheet appears with **Edit**, **Tags**, and **Delete** options
-- **Edit** is available for text and link items; images support delete only
-- Deleting an image also removes the file from internal storage
+Personal use costs less than a cup of coffee per month.
+
+---
+
+## Features In Detail
+
+### Capture
+
+- Share any text, image, or link from any Android app directly into Second Brain
+- Images are saved locally and processed with offline OCR automatically
+- Links fetch title, description, and preview image in the background via Jsoup
+- Upload images directly from your gallery via the upload button
+
+### Search
+
+- Searches text content, link metadata, OCR-extracted image text, and tag names simultaneously
+- Active tag filter combines with search query using AND logic
+- Results appear instantly as you type
 
 ### Tags
-1. Long press any item → **Tags**
-2. Type a tag name and tap **Add** (or tap a suggestion)
-3. Existing tags shown at the top with **×** to remove
-4. Use the **tag filter bar** above each content list to filter by tag
-5. Tags are also searchable from the main search bar
 
-### Searching Content
-1. Use the search bar at the top of the main screen
-2. Type any query — matches content text, link metadata, OCR text, and tag names
-3. Results appear instantly across all content types
+- Add multiple tags to any item via long press
+- Tags auto-lowercased, spaces replaced with hyphens
+- Horizontal filter bar above each content list
+- Searching a tag name surfaces all items tagged with it even if the content does not match
 
-> **Note:** Images are only searchable if OCR successfully extracted text from them.
+### RAG Chat
 
-### Viewing Content
-- **Text Items**: Tap the "Text" card to view all text content
-- **Image Items**: Tap the "Image" card to view all images
-- **Link Items**: Tap the "Link" card to view all links
+- Multiple named conversation threads
+- Each conversation auto-titled from its first message
+- Last 20 messages sent as context on every query for multi-turn coherence
+- Embeddings generated automatically when any item is saved
+- Background job on first launch embeds all existing items silently
+- Source attribution on every answer
 
-### Image Interaction
-- Tap any image thumbnail to open full-screen viewer
-- Use pinch gestures to zoom in/out
-- Swipe down to close the viewer
-- Double-tap to toggle 2× zoom
+### Edit and Delete
 
-### Chat (RAG Agent)
-1. Tap the **chat icon** (top-right of main screen) to open the conversation list
-2. Tap **+** to start a new conversation
-3. Type a question about your saved content and tap **Send**
-4. The app embeds your question, finds the most relevant saved items, and asks Claude to answer using only your content
-5. Each answer shows a **Sources used** section listing which items were referenced
-6. Tap any conversation in the list to continue it; long press to delete it
+- Long press any card: bottom sheet shows Edit, Tags, Delete
+- Edit available for text items (full content) and link items (URL re-fetches metadata)
+- Delete removes the database record and the local file for images
 
-#### First-time Setup
-1. Tap the **gear icon** → Settings
-2. Paste your [OpenRouter API key](https://openrouter.ai/keys)
-3. Tap **Save**
+---
 
-#### How retrieval works
-| Step | What happens |
+## Technical Stack
+
+| Layer | Technology |
 |---|---|
-| Item saved | Embedding generated via OpenRouter and stored in DB |
-| Question sent | Question is embedded; cosine similarity run against all stored embeddings |
-| Retrieval | Top 4 items scoring ≥ 0.3 similarity passed as context to Claude |
-| Response | Claude answers using only those items; sources listed below the reply |
+| Language | Kotlin |
+| UI | Jetpack Compose + Material 3 |
+| Database | Room (local, version 4) |
+| Reactive streams | Kotlin Flow + coroutines |
+| OCR | Google ML Kit 16.0.1 (fully offline) |
+| Image loading | Coil |
+| Link scraping | Jsoup |
+| Embeddings | OpenRouter → openai/text-embedding-3-small (1536 dimensions) |
+| Chat | OpenRouter → anthropic/claude-haiku-4-5 |
+| HTTP | HttpURLConnection only, no OkHttp or Retrofit |
+| API key storage | EncryptedSharedPreferences, AES-256-GCM, Android Keystore |
+| JSON | Gson |
 
-## 🏗️ Project Structure
+---
+
+## Project Structure
 
 ```
 app/src/main/java/com/example/secondbrain/
-├── MainActivity.kt                  # Single activity — all UI logic
+├── MainActivity.kt                  # Single activity, all UI logic
 ├── data/
 │   ├── AppDatabase.kt              # Room database (version 4)
-│   ├── DatabaseManager.kt          # Central access point for all DB ops
+│   ├── DatabaseManager.kt          # Central access point for all DB operations
 │   ├── SettingsManager.kt          # Encrypted API key storage
-│   ├── OpenRouterService.kt        # Embeddings + chat API calls
-│   ├── EmbeddingUtils.kt           # Cosine similarity, serialize/parse
+│   ├── OpenRouterService.kt        # Embeddings + chat API calls via HttpURLConnection
+│   ├── EmbeddingUtils.kt           # Cosine similarity, serialize, parse
 │   ├── entities/
-│   │   ├── TextItemEntity.kt       # + embedding column
-│   │   ├── ImageItemEntity.kt      # + embedding column
-│   │   ├── LinkItemEntity.kt       # + embedding column
+│   │   ├── TextItemEntity.kt       # content, timestamp, embedding, summary
+│   │   ├── ImageItemEntity.kt      # localPath, extractedText, timestamp, embedding
+│   │   ├── LinkItemEntity.kt       # url, title, description, imageUrl, timestamp, embedding
 │   │   ├── TagEntity.kt
 │   │   ├── TextItemTagCrossRef.kt
 │   │   ├── ImageItemTagCrossRef.kt
 │   │   ├── LinkItemTagCrossRef.kt
-│   │   ├── ChatMessageEntity.kt    # + conversationId column
-│   │   └── ConversationEntity.kt
+│   │   ├── ChatMessageEntity.kt    # role, content, sourceIds, sourceTypes, conversationId
+│   │   └── ConversationEntity.kt  # title, createdAt
 │   ├── dao/
 │   │   ├── TextItemDao.kt
 │   │   ├── ImageItemDao.kt
@@ -215,110 +204,140 @@ app/src/main/java/com/example/secondbrain/
     └── Type.kt
 ```
 
-## 🔧 Configuration
+---
 
-### Permissions
-- `INTERNET`: For link metadata, embeddings, and chat API calls
-- `READ_MEDIA_IMAGES`: Gallery access on Android 13+ (API 33+)
-- `READ_EXTERNAL_STORAGE`: Gallery access on Android 9–12 (API 28–32, max SDK 32)
-
-### Build Configuration
-- **Target SDK**: 36 (Android 15)
-- **Minimum SDK**: 28 (Android 9.0)
-- **Compile SDK**: 36
-
-### 16KB Page Size
-Uses ML Kit `16.0.1`, which ships native libraries aligned at 16KB boundaries. Required for Google Play submissions targeting Android 15+.
-
-### API Key Security
-The OpenRouter API key is stored in `EncryptedSharedPreferences` using AES-256-GCM with an Android Keystore-backed master key. It is never logged, never hardcoded, and never transmitted except as an HTTPS header to OpenRouter.
-
-## 🗄️ Database Schema
+## Database Schema
 
 ### Version History
+
 | Version | Changes |
 |---|---|
 | 1 | Baseline: TextItemEntity, ImageItemEntity, LinkItemEntity |
-| 2 | Tags: TagEntity, three CrossRef tables |
+| 2 | Tags: TagEntity, three CrossRef junction tables |
 | 3 | RAG: embedding column on all item entities, ChatMessageEntity |
 | 4 | Multi-thread chat: ConversationEntity, conversationId on ChatMessageEntity |
 
 ### Key Entities
-- **TextItemEntity**: id, content, timestamp, embedding, summary (nullable)
-- **ImageItemEntity**: id, originalUri, localPath, extractedText, timestamp, embedding
-- **LinkItemEntity**: id, url, title, description, imageUrl, timestamp, embedding
-- **ChatMessageEntity**: id, role, content, timestamp, sourceIds, sourceTypes, conversationId
-- **ConversationEntity**: id, title, createdAt
 
-## 🔄 Data Flow
-
-1. **Content Addition**
-   ```
-   User shares/uploads → Room DB insert (returns real ID) → embedding generated → stored
-   ```
-
-2. **OCR Processing**
-   ```
-   Image saved → Background OCR (offline) → extractedText saved → embedding generated
-   ```
-
-3. **Link Metadata**
-   ```
-   URL saved → Background Jsoup fetch → title/description/imageUrl saved in DB
-   ```
-
-4. **RAG Chat**
-   ```
-   Question typed → embed question → cosine similarity vs all stored embeddings
-   → top 4 items retrieved → sent as context to Claude → answer + sources saved
-   ```
-
-5. **Background Embedding Job**
-   ```
-   First launch after install → embed all items with null embedding → set done flag
-   ```
-
-## 🚀 Performance
-- **Reactive UI**: Room Flow streams; no manual refresh
-- **Bitmap downsampling**: Full-screen image viewer caps at 1920×1080 to prevent OOM
-- **Background processing**: OCR, link fetch, and embedding on IO dispatcher
-- **Silent embedding failures**: Item is always saved; embedding retried by background job
-
-## 🐛 Troubleshooting
-
-1. **App not appearing in share sheet** — Launch the app at least once; only `text/plain` and `image/*` are supported
-2. **Images not loading** — Check storage permissions in device Settings
-3. **OCR not extracting text** — Image must contain clear Latin-script text; runs offline
-4. **Link preview missing** — Some sites block scraping; raw URL shown as fallback
-5. **Chat says "could not find"** — Save content about the topic first; embeddings need ~10s after saving
-6. **Chat not responding** — Check API key in Settings; verify internet connection
-7. **Embeddings not generating for new items** — Ensure API key is saved before adding content
-
-### Debug Logging
-Filter logcat by `DEBUG`:
-- `DEBUG: OCR completed successfully!`
-- `DEBUG: Image embedding stored after OCR`
-- `DEBUG: Image metadata updated successfully in database`
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-- Google ML Kit for offline OCR
-- OpenRouter for unified AI API access
-- Jetpack Compose for the UI framework
-- Room for local data persistence
-- Material Design for the design system
+| Entity | Key Columns |
+|---|---|
+| TextItemEntity | id, content, timestamp, embedding (nullable), summary (nullable) |
+| ImageItemEntity | id, originalUri, localPath, extractedText (nullable), timestamp, embedding (nullable) |
+| LinkItemEntity | id, url, title, description, imageUrl, timestamp, embedding (nullable) |
+| ChatMessageEntity | id, role, content, timestamp, sourceIds, sourceTypes, conversationId |
+| ConversationEntity | id, title, createdAt |
 
 ---
 
-**Second Brain** - Your digital memory, organized and searchable. 🧠✨
+## Data Flow
+
+```
+Content saved
+  └── Room DB insert
+        └── Embedding generated via OpenRouter (background, IO dispatcher)
+              └── Stored in embedding column
+
+Question sent in chat
+  └── Question embedded via OpenRouter
+        └── Cosine similarity vs all stored embeddings
+              └── Top 4 items above 0.3 threshold retrieved
+                    └── Sent as context to Claude Haiku
+                          └── Answer + source IDs saved to ChatMessageEntity
+```
+
+```
+Image saved
+  └── Room DB insert
+        └── Background OCR (offline, Google ML Kit)
+              └── extractedText saved
+                    └── Embedding generated from extractedText
+                          └── Stored in embedding column
+```
+
+---
+
+## Permissions
+
+| Permission | Why |
+|---|---|
+| `INTERNET` | Link metadata fetch, embeddings API, chat API |
+| `READ_MEDIA_IMAGES` | Gallery access on Android 13+ (API 33+) |
+| `READ_EXTERNAL_STORAGE` | Gallery access on Android 9 to 12 (API 28 to 32) |
+
+---
+
+## Build Configuration
+
+| Setting | Value |
+|---|---|
+| Minimum SDK | 28 (Android 9.0) |
+| Target SDK | 36 (Android 15) |
+| Compile SDK | 36 |
+| Kotlin | 1.9+ |
+
+**16KB page size:** Uses ML Kit 16.0.1, which ships native libraries aligned at 16KB boundaries. Required for Google Play submissions targeting Android 15+.
+
+**API key security:** The OpenRouter key is stored in EncryptedSharedPreferences using AES-256-GCM with an Android Keystore-backed master key. It is never logged, never hardcoded, and never transmitted except as an HTTPS header directly to OpenRouter.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| App not in share sheet | Launch the app at least once. Only `text/plain` and `image/*` are supported. |
+| Images not loading | Check storage permissions in device Settings. |
+| OCR not extracting text | Image must contain clear Latin-script text. Runs fully offline. |
+| Link preview missing | Some sites block scraping. Raw URL shown as fallback. |
+| Chat says "could not find" | Save content about the topic first. Embeddings need ~10s after saving. |
+| Chat not responding | Check API key in Settings. Verify internet connection. |
+| Embeddings not generating | Ensure API key is saved before adding content. |
+
+### Debug Logging
+
+Filter logcat by `DEBUG`:
+
+```
+DEBUG: OCR completed successfully!
+DEBUG: Image embedding stored after OCR
+DEBUG: Image metadata updated successfully in database
+DEBUG: Link metadata updated successfully in database
+```
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes following the patterns in `CLAUDE.md`
+4. Test on a real device
+5. Submit a pull request with a clear description of what changed and why
+
+Bug reports and feature requests: open a GitHub issue.
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgments
+
+- [Google ML Kit](https://developers.google.com/ml-kit) for offline OCR
+- [OpenRouter](https://openrouter.ai) for unified AI API access
+- [Jetpack Compose](https://developer.android.com/jetpack/compose) for the UI framework
+- [Room](https://developer.android.com/training/data-storage/room) for local data persistence
+- [Material Design 3](https://m3.material.io) for the design system
+
+---
+
+<div align="center">
+
+**Second Brain** — Your digital memory, organized and searchable. 🧠
+
+*Local-first. Privacy-first. Yours.*
+
+</div>
