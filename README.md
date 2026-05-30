@@ -41,15 +41,14 @@ Second Brain stores everything in a local Room database on your device. Your not
 
 ---
 
-## Screenshots
+<!-- ## Screenshots 
 
-<!-- Add your screenshots here. Example:
+
 | Main Screen | Chat | Tags |
 |---|---|---|
-| <img src=".github/assets/screenshot_main.png" width="200"/> | <img src=".github/assets/screenshot_chat.png" width="200"/> | <img src=".github/assets/screenshot_tags.png" width="200"/> |
--->
+| <img src=".github/assets/1.jpeg" width="200"/> | <img src=".github/assets/2.jpeg" width="200"/> | <img src=".github/assets/3.jpeg" width="200"/> | <img src=".github/assets/4.jpeg" width="200"/> |
 
----
+-->
 
 ## How the AI Works
 
