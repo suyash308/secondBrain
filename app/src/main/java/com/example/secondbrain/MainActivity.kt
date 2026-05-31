@@ -457,7 +457,7 @@ class MainActivity : ComponentActivity() {
     /** Generates and stores an embedding for a newly-saved item. Silently skips on failure. */
     private suspend fun generateEmbeddingForItem(item: Any, insertedId: Long) {
         val apiKey = settingsManager.getApiKey() ?: return
-        val text = extractTextForEmbedding(item) ?: return
+        val text = extractTextForEmbedding(item)?.takeIf { it.isNotBlank() } ?: return
         val result = openRouterService.generateEmbedding(text, apiKey)
         result.onSuccess { embedding ->
             val json = EmbeddingUtils.serializeEmbedding(embedding)
