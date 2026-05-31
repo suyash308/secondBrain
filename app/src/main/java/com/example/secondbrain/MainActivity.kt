@@ -18,6 +18,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -86,6 +88,7 @@ import com.example.secondbrain.ui.theme.SBFaint
 import com.example.secondbrain.ui.theme.SBLinkBlue
 import com.example.secondbrain.ui.theme.SBMuted
 import com.example.secondbrain.ui.theme.SBOk
+import com.example.secondbrain.ui.theme.SBOnPrimary
 import com.example.secondbrain.ui.theme.SBOnPrimaryContainer
 import com.example.secondbrain.ui.theme.SBOnSurfaceVariant
 import com.example.secondbrain.ui.theme.SBOutlineVariant
@@ -1085,113 +1088,125 @@ class MainActivity : ComponentActivity() {
                 else -> {
                 when (currentScreen) {
                 "main" -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // Header row with action icons
-                        // ── Top bar ──────────────────────────────────────
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Second Brain",
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = (-0.2).sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            IconButton(onClick = { onUploadImage() }) {
-                                Icon(Icons.Default.Add, contentDescription = "Capture", tint = SBOnSurfaceVariant)
+                    // Home A — Mixed feed (time-sorted across all content types)
+                    val feedItems = remember(textItems, imageItems, linkItems) {
+                        (textItems + imageItems + linkItems).sortedByDescending { item ->
+                            when (item) {
+                                is TextItem  -> item.timestamp
+                                is ImageItem -> item.timestamp
+                                is LinkItem  -> item.timestamp
+                                else -> 0L
                             }
                         }
-
-                        // ── Search bar ────────────────────────────────────
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 6.dp)
-                                .height(52.dp)
-                                .background(SBSurface, RoundedCornerShape(26.dp))
-                                .clickable { isSearching = !isSearching }
-                                .padding(horizontal = 18.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Icon(Icons.Default.Search, contentDescription = null, tint = SBOnSurfaceVariant, modifier = Modifier.size(22.dp))
-                                if (isSearching) {
-                                    BasicTextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        modifier = Modifier.weight(1f),
-                                        textStyle = androidx.compose.ui.text.TextStyle(
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            fontSize = 15.5.sp
-                                        ),
-                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(SBPrimary),
-                                        singleLine = true,
-                                        decorationBox = { inner ->
-                                            if (searchQuery.isEmpty()) Text("Search your brain", color = SBMuted, fontSize = 15.5.sp)
-                                            inner()
+                    }
+                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Top bar
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Second Brain", fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                                    letterSpacing = (-0.2).sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            // Search pill
+                            val searchFocusRequester = remember { FocusRequester() }
+                            LaunchedEffect(isSearching) {
+                                if (isSearching) searchFocusRequester.requestFocus()
+                            }
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 18.dp, vertical = 6.dp)
+                                    .height(52.dp)
+                                    .background(SBSurface, RoundedCornerShape(26.dp))
+                                    .clickable { isSearching = true }
+                                    .padding(horizontal = 18.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Icon(Icons.Default.Search, contentDescription = null, tint = SBOnSurfaceVariant, modifier = Modifier.size(22.dp))
+                                    if (isSearching) {
+                                        BasicTextField(
+                                            value = searchQuery, onValueChange = { searchQuery = it },
+                                            modifier = Modifier.weight(1f).focusRequester(searchFocusRequester),
+                                            textStyle = androidx.compose.ui.text.TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.5.sp),
+                                            cursorBrush = androidx.compose.ui.graphics.SolidColor(SBPrimary),
+                                            singleLine = true,
+                                            decorationBox = { inner ->
+                                                if (searchQuery.isEmpty()) Text("Search your brain", color = SBMuted, fontSize = 15.5.sp)
+                                                inner()
+                                            }
+                                        )
+                                        IconButton(onClick = { searchQuery = ""; isSearching = false }, modifier = Modifier.size(36.dp)) {
+                                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = SBMuted, modifier = Modifier.size(18.dp))
                                         }
-                                    )
-                                    IconButton(onClick = { searchQuery = ""; isSearching = false }, modifier = Modifier.size(36.dp)) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = SBMuted, modifier = Modifier.size(18.dp))
+                                    } else {
+                                        Text("Search your brain", color = SBMuted, fontSize = 15.5.sp, modifier = Modifier.weight(1f))
                                     }
-                                } else {
-                                    Text("Search your brain", color = SBMuted, fontSize = 15.5.sp, modifier = Modifier.weight(1f))
                                 }
                             }
-                        }
-
-                        if (isSearching) {
-                            val searchTextItems = if (activeTagFilter == null) textItems
-                                else textItems.filter { (it as? TextItem)?.id in tagFilteredTextIds }
-                            val searchImageItems = if (activeTagFilter == null) imageItems
-                                else imageItems.filter { it.id in tagFilteredImageIds }
-                            val searchLinkItems = if (activeTagFilter == null) linkItems
-                                else linkItems.filter { it.id in tagFilteredLinkIds }
-                            SearchResults(
-                                query = searchQuery,
-                                textItems = searchTextItems,
-                                imageItems = searchImageItems,
-                                linkItems = searchLinkItems,
-                                tagMatchedTextIds = tagSearchTextIds,
-                                tagMatchedImageIds = tagSearchImageIds,
-                                tagMatchedLinkIds = tagSearchLinkIds,
-                                modifier = Modifier.weight(1f),
-                                onImageClick = { selectedImageItem = it }
-                            )
-                        } else {
-                            // ── 2×2 Category grid ─────────────────────────
-                            LazyColumn(modifier = Modifier.weight(1f)) {
-                                item {
-                                    val cards = listOf(
-                                        Triple("Notes",  textCount,  { currentScreen = "text" }),
-                                        Triple("Images", imageCount, { currentScreen = "image" }),
-                                        Triple("Links",  linkCount,  { currentScreen = "link" })
-                                    )
-                                    Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        cards.chunked(2).forEach { row ->
-                                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                row.forEach { (label, count, onClick) ->
-                                                    Box(modifier = Modifier.weight(1f)) {
-                                                        DesignCategoryCard(label = label, count = count, onClick = onClick)
-                                                    }
+                            if (isSearching) {
+                                val sTxt = if (activeTagFilter == null) textItems else textItems.filter { (it as? TextItem)?.id in tagFilteredTextIds }
+                                val sImg = if (activeTagFilter == null) imageItems else imageItems.filter { it.id in tagFilteredImageIds }
+                                val sLnk = if (activeTagFilter == null) linkItems else linkItems.filter { it.id in tagFilteredLinkIds }
+                                SearchResults(
+                                    query = searchQuery, textItems = sTxt, imageItems = sImg, linkItems = sLnk,
+                                    tagMatchedTextIds = tagSearchTextIds, tagMatchedImageIds = tagSearchImageIds, tagMatchedLinkIds = tagSearchLinkIds,
+                                    modifier = Modifier.weight(1f), onImageClick = { selectedImageItem = it }
+                                )
+                            } else {
+                                // Feed
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // ── Stat cards ───────────────────────────
+                                    item {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            listOf(
+                                                Triple("Notes",  textCount,  { currentScreen = "text" }),
+                                                Triple("Images", imageCount, { currentScreen = "image" }),
+                                                Triple("Links",  linkCount,  { currentScreen = "link" })
+                                            ).forEach { (label, count, onClick) ->
+                                                Box(modifier = Modifier.weight(1f)) {
+                                                    DesignCategoryCard(label = label, count = count, onClick = onClick)
                                                 }
-                                                if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
                                             }
                                         }
                                     }
+                                    if (feedItems.isEmpty()) {
+                                        item {
+                                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text("Nothing saved yet", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = SBMuted)
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text("Share content to get started", fontSize = 14.sp, color = SBFaint)
+                                            }
+                                        }
+                                    } else {
+                                        items(feedItems) { item ->
+                                            HomeFeedCard(
+                                                item = item,
+                                                onImageClick = { selectedImageItem = it },
+                                                onLongPress = { selectedItemForAction = it; showOptionsSheet = true }
+                                            )
+                                        }
+                                    }
                                 }
                             }
+                        }
+                        // FAB
+                        FloatingActionButton(
+                            onClick = { onUploadImage() },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 18.dp, end = 18.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            containerColor = SBPrimary,
+                            contentColor = SBOnPrimary
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add", modifier = Modifier.size(24.dp))
                         }
                     }
                 }
@@ -2450,65 +2465,61 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Chat C — grouped by date
+            val grouped = remember(conversations) {
+                val now = java.util.Calendar.getInstance()
+                val yesterday = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+                conversations.groupBy { conv ->
+                    val cal = java.util.Calendar.getInstance().apply { timeInMillis = conv.createdAt }
+                    when {
+                        cal.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR) &&
+                            cal.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) -> "Today"
+                        cal.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR) &&
+                            cal.get(java.util.Calendar.YEAR) == yesterday.get(java.util.Calendar.YEAR) -> "Yesterday"
+                        else -> "Earlier"
+                    }
+                }
+            }
+
             if (conversations.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(Icons.Default.Email, contentDescription = null, tint = SBMuted, modifier = Modifier.size(48.dp).padding(bottom = 16.dp))
-                    Text("No conversations yet", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                Column(modifier = Modifier.fillMaxSize().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Text("No conversations yet", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = SBMuted)
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text("Tap + to start one", fontSize = 14.sp, color = SBMuted)
+                    Text("Tap + to start one", fontSize = 14.sp, color = SBFaint)
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(conversations, key = { it.id }) { conversation ->
-                        // Design: conversation cards (variant A)
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = { onOpenConversation(conversation.id) },
-                                    onLongClick = { conversationToDelete = conversation }
-                                ),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = SBSurfaceLow)
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 4.dp)) {
+                    listOf("Today", "Yesterday", "Earlier").forEach { group ->
+                        val convs = grouped[group] ?: return@forEach
+                        item {
+                            Text(group.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp, color = SBMuted,
+                                modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 8.dp))
+                        }
+                        items(convs, key = { it.id }) { conversation ->
+                            Box(modifier = Modifier.padding(bottom = 8.dp)) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
+                                    modifier = Modifier.fillMaxWidth()
+                                        .background(SBSurfaceLow, RoundedCornerShape(14.dp))
+                                        .combinedClickable(
+                                            onClick = { onOpenConversation(conversation.id) },
+                                            onLongClick = { conversationToDelete = conversation }
+                                        )
+                                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = conversation.title,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = (-0.2).sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
-                                    )
-                                    Text(
-                                        text = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault())
-                                            .format(java.util.Date(conversation.createdAt)),
-                                        fontSize = 12.sp,
-                                        color = SBFaint
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Icon(Icons.Default.Email, contentDescription = null, tint = SBFaint, modifier = Modifier.size(14.dp))
-                                    Text("Tap to continue", fontSize = 12.sp, color = SBFaint, fontWeight = FontWeight.Medium)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(conversation.title, fontSize = 15.5.sp, fontWeight = FontWeight.Bold,
+                                            letterSpacing = (-0.1).sp, color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text("Tap to open", fontSize = 13.sp, color = SBMuted, modifier = Modifier.padding(top = 1.dp),
+                                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    }
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = null, tint = SBFaint,
+                                        modifier = Modifier.size(20.dp).graphicsLayer(rotationZ = 180f))
                                 }
                             }
                         }
@@ -2546,6 +2557,12 @@ class MainActivity : ComponentActivity() {
         val snackbarHostState = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
         val hasKey = settingsManager.getApiKey() != null
+        val settingsTextItems by databaseManager.getAllTextItems().collectAsState(initial = emptyList())
+        val settingsImageItems by databaseManager.getAllImageItems().collectAsState(initial = emptyList())
+        val settingsLinkItems by databaseManager.getAllLinkItems().collectAsState(initial = emptyList())
+        val textCount = settingsTextItems.size
+        val imageCount = settingsImageItems.size
+        val linkCount = settingsLinkItems.size
 
         BackHandler { onBack() }
 
@@ -2558,17 +2575,14 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
-                // Top bar
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Text("Settings", fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
                     }
                 }
 
-                // API key hero card (design variant C)
+                // API key hero card
                 item {
                     Box(
                         modifier = Modifier
@@ -2697,27 +2711,32 @@ class MainActivity : ComponentActivity() {
     private fun SettingsRow(
         icon: androidx.compose.ui.graphics.vector.ImageVector,
         title: String,
-        subtitle: String? = null
+        subtitle: String? = null,
+        trailingOk: Boolean = false,
+        trailingToggle: Boolean = false,
+        trailingSwatch: Boolean = false
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 2.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.Transparent)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(16.dp)).background(Color.Transparent)
                 .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Box(
-                modifier = Modifier.size(40.dp).background(SBSurface, RoundedCornerShape(11.dp)),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(40.dp).background(SBSurface, RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = null, tint = SBOnSurfaceVariant, modifier = Modifier.size(20.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                 if (subtitle != null) Text(subtitle, fontSize = 12.sp, color = SBMuted, modifier = Modifier.padding(top = 1.dp))
+            }
+            // Trailing elements
+            when {
+                trailingOk -> Icon(Icons.Default.Settings, contentDescription = null, tint = SBOk, modifier = Modifier.size(20.dp))
+                trailingToggle -> Box(modifier = Modifier.width(48.dp).height(28.dp).background(SBPrimary, RoundedCornerShape(16.dp))) {
+                    Box(modifier = Modifier.size(22.dp).padding(3.dp).background(SBOnPrimary, CircleShape).align(Alignment.CenterEnd))
+                }
+                trailingSwatch -> Box(modifier = Modifier.size(24.dp).background(SBPrimary, CircleShape))
             }
         }
     }
@@ -2730,7 +2749,6 @@ class MainActivity : ComponentActivity() {
     ) {
         val items = listOf(
             Triple("home",     Icons.Default.Home,     "Home"),
-            Triple("search",   Icons.Default.Search,   "Search"),
             Triple("chat",     Icons.Default.Email,    "Chat"),
             Triple("settings", Icons.Default.Settings, "Settings")
         )
@@ -2753,6 +2771,143 @@ class MainActivity : ComponentActivity() {
                         unselectedTextColor = SBMuted
                     )
                 )
+            }
+        }
+    }
+
+    // ── Home Feed card (Home A) ────────────────────────────────────────────────
+    private fun timeAgo(timestamp: Long): String {
+        val diff = System.currentTimeMillis() - timestamp
+        val mins = diff / 60_000
+        val hours = diff / 3_600_000
+        val days = diff / 86_400_000
+        return when {
+            mins < 60  -> "${mins}m"
+            hours < 24 -> "${hours}h"
+            else       -> "${days}d"
+        }
+    }
+
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    private fun HomeFeedCard(item: Any, onImageClick: (ImageItem) -> Unit, onLongPress: (Any) -> Unit) {
+        val (typeLabel, typeTint, typeBg) = when (item) {
+            is TextItem  -> Triple("Note",  SBPrimary, SBPrimaryTint)
+            is ImageItem -> Triple("Image", SBOk,      Color(0x238FD19A))
+            is LinkItem  -> Triple("Link",  SBLinkBlue,Color(0x23AAC6F5))
+            else         -> Triple("Item",  SBMuted,   SBSurfaceHigh)
+        }
+        val typeIcon = when (item) {
+            is TextItem  -> Icons.Default.Create
+            is ImageItem -> Icons.Default.Star
+            is LinkItem  -> Icons.Default.Share
+            else         -> Icons.Default.Add
+        }
+        val timestamp = when (item) {
+            is TextItem  -> item.timestamp
+            is ImageItem -> item.timestamp
+            is LinkItem  -> item.timestamp
+            else -> 0L
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth().combinedClickable(
+                onClick = { if (item is ImageItem) onImageClick(item) },
+                onLongClick = { onLongPress(item) }
+            ),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = SBSurfaceLow)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Header row: type badge + label + dot + time
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                ) {
+                    Box(modifier = Modifier.size(30.dp).background(typeBg, RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
+                        Icon(typeIcon, contentDescription = null, tint = typeTint, modifier = Modifier.size(16.dp))
+                    }
+                    Text(typeLabel.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp, color = SBOnSurfaceVariant)
+                    Text("·", color = SBFaint, fontSize = 13.sp)
+                    Text(timeAgo(timestamp), fontSize = 13.sp, color = SBMuted)
+                }
+                // Title
+                val title = when (item) {
+                    is TextItem  -> item.content?.lines()?.firstOrNull { it.isNotBlank() }?.take(80) ?: item.content?.take(80) ?: ""
+                    is ImageItem -> "Image" // never repeat OCR text as title
+                    is LinkItem  -> item.title?.take(80) ?: item.url ?: ""
+                    else -> ""
+                }
+                if (title.isNotBlank()) {
+                    Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.2).sp, color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+                // Body — one level of supporting text only, no repeat
+                when (item) {
+                    is TextItem -> {
+                        val rest = item.content?.let { c ->
+                            val firstEnd = c.indexOf('\n').takeIf { it >= 0 } ?: c.length.coerceAtMost(80)
+                            c.drop(firstEnd).trim().take(120)
+                        }
+                        if (!rest.isNullOrBlank()) {
+                            Text(rest, fontSize = 14.sp, color = SBOnSurfaceVariant,
+                                modifier = Modifier.padding(top = 5.dp), maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
+                    is LinkItem -> item.description?.takeIf { it.isNotBlank() }?.let {
+                        Text(it.take(120), fontSize = 14.sp, color = SBOnSurfaceVariant,
+                            modifier = Modifier.padding(top = 5.dp), maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                    is ImageItem -> {
+                        // Show first non-blank line of OCR text as a single subtitle — no repeat
+                        val firstLine = item.extractedText?.lines()?.firstOrNull { it.isNotBlank() }?.take(80)
+                        if (!firstLine.isNullOrBlank()) {
+                            Text(firstLine, fontSize = 13.sp, color = SBMuted,
+                                modifier = Modifier.padding(top = 4.dp), maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                // Media thumbnail for image items
+                if (item is ImageItem && !item.localPath.isNullOrEmpty()) {
+                    val path = item.localPath.removePrefix("file://")
+                    AsyncImage(
+                        model = coil.request.ImageRequest.Builder(LocalContext.current).data(path).crossfade(true).build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().height(130.dp)
+                            .padding(top = 12.dp).clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                // Link image preview
+                if (item is LinkItem && !item.imageUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = coil.request.ImageRequest.Builder(LocalContext.current).data(item.imageUrl).crossfade(true).build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().height(100.dp)
+                            .padding(top = 12.dp).clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                // Tags
+                val tags by databaseManager.getTagsForItem(
+                    when (item) { is TextItem -> item.id; is ImageItem -> item.id; is LinkItem -> item.id; else -> 0L },
+                    when (item) { is TextItem -> ContentType.TEXT; is ImageItem -> ContentType.IMAGE; else -> ContentType.LINK }
+                ).collectAsState(initial = emptyList())
+                if (tags.isNotEmpty()) {
+                    Row(modifier = Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        tags.take(3).forEach { tag ->
+                            Box(modifier = Modifier.background(SBSurfaceHigh, RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 3.dp)) {
+                                Text("#${tag.name}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SBOnSurfaceVariant, letterSpacing = 0.2.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
