@@ -335,7 +335,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Download & Install
 
-1. Go to [Releases](https://github.com/your-username/secondBrain/releases/latest)
+1. Go to [Releases](https://github.com/suyash308/secondBrain/releases/tag/v1.0.0)
 2. Download the latest `.apk` file
 3. On your Android phone, enable **Settings > Install unknown apps**
 4. Open the downloaded APK and install
