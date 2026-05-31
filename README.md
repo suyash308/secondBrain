@@ -1,8 +1,3 @@
-<div align="center">
-
-<!-- Replace the line below with your actual GIF path after recording -->
-<img src=".github/assets/demo.gif" width="320" alt="Second Brain Demo"/>
-
 # Second Brain
 
 **A local-first Android second brain. Capture anything. Search everything. Chat with your own content using AI.**
@@ -19,6 +14,12 @@ No cloud. No subscription. No data leaves your phone.
 
 ---
 
+<div align="center">
+
+<!-- Replace the line below with your actual GIF path after recording -->
+<img src=".github/assets/demo.gif" width="320" alt="Second Brain Demo"/>
+
+---
 ## Why This Exists
 
 Every second brain app is cloud-dependent, expensive, or both. Notion goes offline and you lose your notes. Obsidian mobile is a desktop app crammed onto a phone. AI features require a monthly subscription to someone else's infrastructure.
