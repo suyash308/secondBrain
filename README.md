@@ -333,6 +333,13 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
+## Download & Install
+
+1. Go to [Releases](https://github.com/your-username/secondBrain/releases/latest)
+2. Download the latest `.apk` file
+3. On your Android phone, enable **Settings > Install unknown apps**
+4. Open the downloaded APK and install
+
 <div align="center">
 
 **Second Brain** — Your digital memory, organized and searchable. 🧠
