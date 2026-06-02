@@ -359,6 +359,17 @@ class MainActivity : ComponentActivity() {
                 imageUrl = updatedLinkItem.imageUrl
             )
             println("DEBUG: Link metadata updated successfully in database")
+
+            // Generate embedding now that we have title/description to embed
+            val entity = databaseManager.getLinkItemByUrl(originalUrl) ?: return@launch
+            val text = listOfNotNull(updatedLinkItem.title, updatedLinkItem.description)
+                .joinToString(" ").take(2000).ifBlank { null } ?: return@launch
+            val apiKey = settingsManager.getApiKey() ?: return@launch
+            val result = openRouterService.generateEmbedding(text, apiKey)
+            result.onSuccess { embedding ->
+                databaseManager.updateLinkItemEmbedding(entity.id, EmbeddingUtils.serializeEmbedding(embedding))
+                println("DEBUG: Link embedding generated after metadata fetch for id=${entity.id}")
+            }
         }
     }
     
@@ -2554,8 +2565,11 @@ class MainActivity : ComponentActivity() {
     ) {
         var apiKeyInput by remember { mutableStateOf(settingsManager.getApiKey() ?: "") }
         var showKey by remember { mutableStateOf(false) }
+        var isVerifyingKey by remember { mutableStateOf(false) }
         val snackbarHostState = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+        val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         val hasKey = settingsManager.getApiKey() != null
         val settingsTextItems by databaseManager.getAllTextItems().collectAsState(initial = emptyList())
         val settingsImageItems by databaseManager.getAllImageItems().collectAsState(initial = emptyList())
@@ -2660,12 +2674,26 @@ class MainActivity : ComponentActivity() {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = {
-                                        settingsManager.saveApiKey(apiKeyInput.trim())
-                                        scope.launch { snackbarHostState.showSnackbar("API key saved") }
+                                        val trimmedKey = apiKeyInput.trim()
+                                        keyboardController?.hide()
+                                        focusManager.clearFocus()
+                                        isVerifyingKey = true
+                                        scope.launch(Dispatchers.IO) {
+                                            val result = openRouterService.generateEmbedding("test", trimmedKey)
+                                            withContext(Dispatchers.Main) {
+                                                isVerifyingKey = false
+                                                if (result.isSuccess) {
+                                                    settingsManager.saveApiKey(trimmedKey)
+                                                    snackbarHostState.showSnackbar("API key verified and saved")
+                                                } else {
+                                                    snackbarHostState.showSnackbar("Invalid API key — not saved")
+                                                }
+                                            }
+                                        }
                                     },
-                                    enabled = apiKeyInput.isNotBlank(),
+                                    enabled = apiKeyInput.isNotBlank() && !isVerifyingKey,
                                     shape = RoundedCornerShape(12.dp)
-                                ) { Text("Save") }
+                                ) { Text(if (isVerifyingKey) "Verifying…" else "Save") }
                                 OutlinedButton(
                                     onClick = {
                                         settingsManager.clearApiKey()

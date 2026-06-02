@@ -143,6 +143,8 @@ class DatabaseManager(private val context: Context) {
     suspend fun updateLinkMetadata(url: String, title: String?, description: String?, imageUrl: String?) {
         linkItemDao.updateLinkMetadata(url, title, description, imageUrl)
     }
+
+    suspend fun getLinkItemByUrl(url: String) = linkItemDao.getLinkItemByUrl(url)
     
     // Tags
     suspend fun addTagToItem(tagName: String, itemId: Long, contentType: ContentType) {

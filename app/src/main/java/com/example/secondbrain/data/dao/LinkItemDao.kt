@@ -37,6 +37,9 @@ interface LinkItemDao {
     @Query("UPDATE link_items SET title = :title, description = :description, imageUrl = :imageUrl WHERE url = :url")
     suspend fun updateLinkMetadata(url: String, title: String?, description: String?, imageUrl: String?)
 
+    @Query("SELECT * FROM link_items WHERE url = :url LIMIT 1")
+    suspend fun getLinkItemByUrl(url: String): LinkItemEntity?
+
     @Query("UPDATE link_items SET embedding = :embedding WHERE id = :id")
     suspend fun updateEmbedding(id: Long, embedding: String)
 
