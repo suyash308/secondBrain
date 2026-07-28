@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ... existing strings ... -->
+    <string name="empty_text_list_message">No notes yet. Share text from any app to save it here.</string>
+    <string name="empty_image_list_message">No images yet. Use the upload button or share an image.</string>
+    <string name="empty_link_list_message">No links yet. Share a URL from your browser to save it here.</string>
+</resources>
